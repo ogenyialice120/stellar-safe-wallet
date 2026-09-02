@@ -32,25 +32,27 @@ stellar-safe-wallet/
 ├── contracts/
 │   ├── safe-wallet/          # Core wallet smart contract (Rust/Soroban)
 │   │   ├── src/
-│   │   │   ├── lib.rs        # Contract entry point
-│   │   │   ├── policy.rs     # Spending policy engine
-│   │   │   ├── whitelist.rs  # Address whitelist management
-│   │   │   ├── recovery.rs   # Recovery key logic
-│   │   │   └── types.rs      # Shared types & errors
+│   │   │   └── lib.rs        # Contract entry point, all wallet logic & tests
+│   │   └── Cargo.toml
+│   ├── airdrop/              # Token airdrop contract with Merkle-proof claims
+│   │   ├── src/
+│   │   │   └── lib.rs
 │   │   └── Cargo.toml
 │   └── test-utils/           # Shared test utilities
+│       ├── src/
+│       │   └── lib.rs
+│       └── Cargo.toml
 ├── src/
-│   ├── client/               # TypeScript SDK client
-│   └── utils/                # Helper functions
+│   └── lib.rs                # Workspace-level helpers
 ├── tests/
-│   ├── unit/                 # Unit tests
-│   └── integration/          # Integration tests on Testnet
+│   └── placeholder.rs        # Integration test scaffold
 ├── docs/
 │   ├── architecture.md       # Deep-dive architecture docs
 │   ├── policies.md           # Spending policy guide
 │   └── deployment.md         # Deployment guide
 ├── scripts/
 │   └── deploy.sh             # Deployment scripts
+├── Cargo.toml                # Workspace manifest
 └── README.md
 ```
 
@@ -62,7 +64,6 @@ stellar-safe-wallet/
 
 - [Rust](https://rustup.rs/) (1.74+)
 - [Stellar CLI](https://developers.stellar.org/docs/tools/developer-tools/stellar-cli) (`stellar` v22+)
-- [Node.js](https://nodejs.org/) 18+ (for TypeScript client)
 
 ### Installation
 
@@ -113,18 +114,22 @@ stellar contract deploy \
 ## 📖 Usage Example
 
 ```rust
-// Initialize wallet with owner and daily cap of 100 XLM
+// Initialize the wallet (owner, daily cap in stroops, recovery key, token address)
 client.initialize(
-    owner_address,
-    daily_cap_xlm: 100_0000000,  // 100 XLM in stroops
-    recovery_key: recovery_address,
+    &owner_address,
+    &1_000_000_000_i128, // 100 XLM in stroops (1 XLM = 10_000_000 stroops)
+    &recovery_address,
+    &token_contract_address,
 );
 
-// Add a whitelisted recipient
-client.add_whitelist(recipient_address);
+// Add a whitelisted recipient (only owner may call)
+client.add_whitelist(&recipient_address);
 
-// Execute a transfer (enforces all policies automatically)
-client.transfer(recipient_address, amount_in_stroops);
+// Transfer tokens — enforces whitelist, daily cap, and freeze state automatically
+client.transfer(&token_contract_address, &recipient_address, &100_000_000_i128);
+
+// Emergency freeze via recovery key
+client.freeze(&recovery_address);
 ```
 
 ---
