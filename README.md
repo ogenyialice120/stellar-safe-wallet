@@ -15,13 +15,13 @@ A programmable smart contract wallet built on **Stellar's Soroban** platform, im
 | Feature | Description |
 |---|---|
 | 💰 **Daily Spending Caps** | Set maximum spend limits per 24-hour rolling window |
-| 📋 **Whitelisted Addresses** | Restrict transfers to pre-approved recipient addresses |
-| ⏱️ **Time-Locked Transactions** | Enforce delays on large transfers for extra security |
-| 🔑 **Recovery Keys** | Designate recovery signers to regain wallet access |
-| 👥 **Multi-Owner Support** | Multiple owners with configurable approval thresholds |
-| 🚦 **Spending Policies** | Programmable rules engine for custom transaction logic |
-| 📊 **Spend History** | On-chain record of transactions per policy period |
-| 🔒 **Emergency Freeze** | Instantly freeze wallet activity via recovery key |
+| 📋 **Whitelisted Addresses** | Restrict transfers to pre-approved recipients (max 50, dedup enforced) |
+| 🔑 **Recovery Keys** | Designate a recovery signer to freeze, unfreeze, and rotate keys |
+| 🔒 **Emergency Freeze / Unfreeze** | Instantly freeze or unfreeze wallet activity via recovery key |
+| 🛡️ **Re-initialisation Guard** | Contract can only be initialised once; subsequent calls are rejected |
+| ♻️ **Key Rotation** | Recovery key can be rotated with dual owner + recovery-key auth |
+| 📦 **Storage TTL Management** | Instance storage TTL is extended on init and every transfer |
+| 🗑️ **Whitelist Removal** | Owner can remove addresses from the whitelist at any time |
 
 ---
 
@@ -83,11 +83,8 @@ cargo build --target wasm32-unknown-unknown --release
 ### Running Tests
 
 ```bash
-# Unit tests
+# Run all unit tests
 cargo test
-
-# Integration tests (requires Testnet access)
-cargo test --features testnet
 ```
 
 ### Deploy to Testnet
@@ -117,20 +114,45 @@ stellar contract deploy \
 // Initialize the wallet (owner, daily cap in stroops, recovery key, token address)
 client.initialize(
     &owner_address,
-    &1_000_000_000_i128, // 100 XLM in stroops (1 XLM = 10_000_000 stroops)
+    &1_000_000_000_i128, // 100 XLM (1 XLM = 10_000_000 stroops, so 100 XLM = 1_000_000_000)
     &recovery_address,
     &token_contract_address,
 );
 
-// Add a whitelisted recipient (only owner may call)
+// Add a whitelisted recipient (owner only; max 50 addresses, no duplicates)
 client.add_whitelist(&recipient_address);
 
 // Transfer tokens — enforces whitelist, daily cap, and freeze state automatically
-client.transfer(&token_contract_address, &recipient_address, &100_000_000_i128);
+// Note: token address is set at initialize() time, not passed here
+client.transfer(&recipient_address, &100_000_000_i128);
 
 // Emergency freeze via recovery key
 client.freeze(&recovery_address);
+
+// Unfreeze via recovery key
+client.unfreeze(&recovery_address);
+
+// Remove an address from the whitelist (owner only)
+client.remove_whitelist(&recipient_address);
+
+// Rotate the recovery key (requires both owner + current recovery key auth)
+client.update_recovery_key(&new_recovery_address);
 ```
+
+---
+
+## 📋 Contract API
+
+| Function | Description | Auth |
+|---|---|---|
+| `initialize` | Set owner, daily cap, recovery key, token address | Owner (once only) |
+| `add_whitelist` | Add address to transfer whitelist (max 50) | Owner |
+| `remove_whitelist` | Remove address from whitelist | Owner |
+| `transfer` | Transfer tokens enforcing all policies | Owner |
+| `freeze` | Emergency freeze — halts all transfers | Recovery key |
+| `unfreeze` | Lift a freeze | Recovery key |
+| `is_frozen` | Returns `true` if wallet is frozen | Read-only |
+| `update_recovery_key` | Rotate recovery key | Owner + current recovery key |
 
 ---
 
