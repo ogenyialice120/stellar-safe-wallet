@@ -162,8 +162,8 @@ We welcome contributions.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for full guidelines.
 
-**Quick start for Wave contributors:**
-1. Browse [open issues](https://github.com/ogenyialice120/stellar-safe-wallet/issues) labeled `good first issue` or `Stellar Wave`
+**Quick start for contributors:**
+1. Browse [open issues](https://github.com/ogenyialice120/stellar-safe-wallet/issues) labeled `good first issue` or `Issues`
 2. Comment on the issue to apply
 3. Fork → branch → PR
 
