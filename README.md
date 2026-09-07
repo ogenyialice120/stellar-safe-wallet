@@ -158,7 +158,7 @@ client.update_recovery_key(&new_recovery_address);
 
 ## 🤝 Contributing
 
-We welcome contributions! This project participates in the **[Stellar Wave Program](https://www.drips.network/wave/stellar)** — a monthly contribution sprint where you can earn rewards for your work.
+We welcome contributions.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for full guidelines.
 
