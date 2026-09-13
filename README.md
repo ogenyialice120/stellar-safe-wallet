@@ -3,7 +3,6 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Stellar](https://img.shields.io/badge/Built%20on-Stellar-blue)](https://stellar.org)
 [![Soroban](https://img.shields.io/badge/Smart%20Contracts-Soroban-purple)](https://soroban.stellar.org)
-[![good first issues](https://img.shields.io/github/issues/ogenyialice120/stellar-safe-wallet/good%20first%20issue)](https://github.com/ogenyialice120/stellar-safe-wallet/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
 [![CI](https://github.com/ogenyialice120/stellar-safe-wallet/actions/workflows/ci.yml/badge.svg)](https://github.com/ogenyialice120/stellar-safe-wallet/actions/workflows/ci.yml)
 
 A programmable smart contract wallet built on **Stellar's Soroban** platform, implementing full **Account Abstraction** logic — going far beyond basic multisig into a flexible, policy-driven wallet engine.
