@@ -692,4 +692,168 @@ mod tests {
 
         assert_eq!(token::Client::new(&env, &token).balance(&recipient), 100_000);
     }
+
+    // -----------------------------------------------------------------------
+    // Additional whitelist edge cases
+    // -----------------------------------------------------------------------
+
+    /// Filling the whitelist to the 50-address cap and then trying to add a
+    /// 51st address must return `WhitelistFull`.
+    #[test]
+    fn test_whitelist_full_rejects_51st_address() {
+        let env = Env::default();
+        let (_token, client, _owner, _recovery) = setup_wallet(&env, 1_000_000);
+
+        // Add exactly WHITELIST_MAX (50) unique addresses.
+        for _ in 0..50 {
+            client.add_whitelist(&Address::generate(&env));
+        }
+
+        // The 51st must fail.
+        assert_eq!(
+            client.try_add_whitelist(&Address::generate(&env)),
+            Err(Ok(WalletError::WhitelistFull))
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Additional transfer edge cases
+    // -----------------------------------------------------------------------
+
+    /// A negative amount (i128 is signed) must be rejected with `ZeroAmount`.
+    #[test]
+    fn test_transfer_rejects_negative_amount() {
+        let env = Env::default();
+        let (_token, client, _owner, _recovery) = setup_wallet(&env, 1_000_000);
+        let recipient = Address::generate(&env);
+        client.add_whitelist(&recipient);
+
+        assert_eq!(
+            client.try_transfer(&recipient, &-1_i128),
+            Err(Ok(WalletError::ZeroAmount))
+        );
+    }
+
+    /// Transferring exactly the daily cap should succeed (boundary condition).
+    #[test]
+    fn test_transfer_exactly_at_daily_cap_succeeds() {
+        let env = Env::default();
+        let (token, client, owner, _recovery) = setup_wallet(&env, 100_000);
+        let recipient = Address::generate(&env);
+        client.add_whitelist(&recipient);
+
+        StellarAssetClient::new(&env, &token).mint(&owner, &100_000);
+        token::Client::new(&env, &token).transfer(&owner, &client.address, &100_000);
+
+        // Should succeed — exactly hits the cap.
+        client.transfer(&recipient, &100_000);
+        assert_eq!(token::Client::new(&env, &token).balance(&recipient), 100_000);
+    }
+
+    /// Transferring daily_cap + 1 must fail with `DailyCapExceeded`.
+    #[test]
+    fn test_transfer_one_over_daily_cap_fails() {
+        let env = Env::default();
+        let (token, client, owner, _recovery) = setup_wallet(&env, 100_000);
+        let recipient = Address::generate(&env);
+        client.add_whitelist(&recipient);
+
+        StellarAssetClient::new(&env, &token).mint(&owner, &200_000);
+        token::Client::new(&env, &token).transfer(&owner, &client.address, &200_000);
+
+        assert_eq!(
+            client.try_transfer(&recipient, &100_001_i128),
+            Err(Ok(WalletError::DailyCapExceeded))
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Additional recovery key edge cases
+    // -----------------------------------------------------------------------
+
+    /// `update_recovery_key` must reject `new_key == owner` with `Unauthorized`.
+    #[test]
+    fn test_update_recovery_key_owner_as_new_key_fails() {
+        let env = Env::default();
+
+        // We need the actual owner address; extract it from setup_wallet.
+        env.mock_all_auths();
+        let contract_id = env.register(SafeWallet, ());
+        let client = SafeWalletClient::new(&env, &contract_id);
+        let owner = Address::generate(&env);
+        let recovery = Address::generate(&env);
+        let token_admin = Address::generate(&env);
+        let token = env.register_stellar_asset_contract(token_admin.clone());
+        client.initialize(&owner, &1_000_000, &recovery, &token);
+
+        // Attempting to set the owner themselves as the new recovery key must fail.
+        assert_eq!(
+            client.try_update_recovery_key(&owner),
+            Err(Ok(WalletError::Unauthorized))
+        );
+    }
+
+    /// Full freeze → unfreeze → transfer cycle through a key rotation.
+    #[test]
+    fn test_freeze_rotate_unfreeze_transfer_cycle() {
+        let env = Env::default();
+        let (token, client, owner, recovery) = setup_wallet(&env, 1_000_000);
+        let recipient = Address::generate(&env);
+        let new_recovery = Address::generate(&env);
+
+        client.add_whitelist(&recipient);
+        StellarAssetClient::new(&env, &token).mint(&owner, &500_000);
+        token::Client::new(&env, &token).transfer(&owner, &client.address, &500_000);
+
+        // 1. Freeze with the original recovery key.
+        client.freeze(&recovery);
+        assert!(client.is_frozen());
+
+        // 2. Transfer must fail while frozen.
+        assert_eq!(
+            client.try_transfer(&recipient, &50_000),
+            Err(Ok(WalletError::WalletFrozen))
+        );
+
+        // 3. Rotate the recovery key (owner + old recovery key both sign).
+        client.update_recovery_key(&new_recovery);
+
+        // 4. Old recovery key can no longer unfreeze.
+        assert_eq!(
+            client.try_unfreeze(&recovery),
+            Err(Ok(WalletError::Unauthorized))
+        );
+
+        // 5. New recovery key unfreezes successfully.
+        client.unfreeze(&new_recovery);
+        assert!(!client.is_frozen());
+
+        // 6. Transfers resume normally.
+        client.transfer(&recipient, &50_000);
+        assert_eq!(token::Client::new(&env, &token).balance(&recipient), 50_000);
+    }
+
+    // -----------------------------------------------------------------------
+    // initialize edge cases
+    // -----------------------------------------------------------------------
+
+    /// A zero daily cap is stored without error — the cap validation is not
+    /// done at init time. Any transfer with a positive amount will immediately
+    /// exceed the zero cap.
+    #[test]
+    fn test_initialize_zero_daily_cap_stores_and_blocks_transfers() {
+        let env = Env::default();
+        let (token, client, owner, _recovery) = setup_wallet(&env, 0);
+        let recipient = Address::generate(&env);
+        client.add_whitelist(&recipient);
+
+        StellarAssetClient::new(&env, &token).mint(&owner, &1_000);
+        token::Client::new(&env, &token).transfer(&owner, &client.address, &1_000);
+
+        // Even the smallest positive transfer should exceed the zero cap.
+        assert_eq!(
+            client.try_transfer(&recipient, &1_i128),
+            Err(Ok(WalletError::DailyCapExceeded))
+        );
+    }
 }

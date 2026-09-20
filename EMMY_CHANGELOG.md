@@ -62,15 +62,13 @@ for the Wave Program's code quality criterion.
 
 ### Changes
 
-**scripts/demo.sh** — New file (replaces the deploy-only script with a full demo).
+**scripts/demo.sh** — New file (replaces the deploy-only script).
 - End-to-end testnet demo: build → deploy → init → whitelist → transfer →
   cap exceeded → freeze → freeze blocked transfer → key rotation → unfreeze →
   transfer after unfreeze.
-- Creates and funds four testnet keys automatically (alice, alice-recovery,
-  alice-recipient, alice-recovery-v2).
+- Creates and funds two testnet keys (`alice`, `alice-recovery`) automatically.
 - Annotated output with step numbers and expected results.
 - Non-destructive: safe to run multiple times (idempotent key generation).
-- 12 steps covering every wallet policy in sequence.
 
 **Why:** The evaluation criteria require a working demo. The original deploy.sh
 only deployed the contracts; it did not exercise any wallet policies.
