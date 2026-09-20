@@ -62,58 +62,13 @@ for the Wave Program's code quality criterion.
 
 ### Changes
 
-**scripts/demo.sh** — New file (replaces the deploy-only script with a full demo).
+**scripts/demo.sh** — New file (replaces the deploy-only script).
 - End-to-end testnet demo: build → deploy → init → whitelist → transfer →
   cap exceeded → freeze → freeze blocked transfer → key rotation → unfreeze →
   transfer after unfreeze.
-- Creates and funds four testnet keys automatically (alice, alice-recovery,
-  alice-recipient, alice-recovery-v2).
+- Creates and funds two testnet keys (`alice`, `alice-recovery`) automatically.
 - Annotated output with step numbers and expected results.
 - Non-destructive: safe to run multiple times (idempotent key generation).
-- 12 steps covering every wallet policy in sequence.
 
 **Why:** The evaluation criteria require a working demo. The original deploy.sh
 only deployed the contracts; it did not exercise any wallet policies.
-
----
-
-## 2026-09-20 — chore/remove-duplicate-directory (PR #4)
-
-### Changes
-
-**stellar-safe-wallet/ (nested directory) — removed entirely via `git rm -r`.**
-
-Audit summary before deletion:
-- `contracts/safe-wallet/src/lib.rs`: 3 918 bytes in nested copy vs 22 925 bytes
-  at root. Nested copy is an old stub missing `contracterror`, the `token` module,
-  all policy logic (whitelist, freeze, recovery key rotation, TTL management), and
-  all tests.
-- `contracts/airdrop/src/lib.rs`: 8 019 bytes nested vs 12 696 bytes at root.
-  Nested copy is an older version with fewer comments and a different `DataKey`
-  error type style.
-- `Cargo.toml`: nested copy is missing the `[patch.crates-io]` ed25519-dalek
-  override that the root workspace Cargo.toml requires.
-- `contracts/test-utils/src/lib.rs`: identical to root.
-- No files existed only in the nested copy; deletion is safe with zero information
-  loss.
-
-**Why:** The nested directory confuses tooling (two workspace manifests in the same
-git tree), inflates the repo, and would cause reviewer confusion about which version
-of the contracts is canonical.
-
----
-
-## 2026-09-20 — CI audit (no separate PR needed)
-
-### Findings
-
-Existing `.github/workflows/ci.yml` already covers all requirements:
-- Triggers on `push` and `pull_request` targeting `main` / `master`.
-- Installs stable Rust + `wasm32-unknown-unknown` target.
-- Runs `cargo build --workspace` (native).
-- Runs `cargo test --workspace` (covers all workspace members, including new tests).
-- Runs `cargo build --target wasm32-unknown-unknown --release` for the safe-wallet WASM.
-- Uses `actions/cache@v4` for Cargo registry and build artefacts.
-
-No CI changes required. The workflow will automatically run against the pending PRs
-once they are opened targeting main.
