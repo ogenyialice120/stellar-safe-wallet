@@ -398,7 +398,7 @@ mod tests {
         let owner = Address::generate(env);
         let recovery = Address::generate(env);
         let token_admin = Address::generate(env);
-        let token = env.register_stellar_asset_contract(token_admin.clone());
+        let token = env.register_stellar_asset_contract_v2(token_admin.clone()).address();
         client.initialize(&owner, &daily_cap, &recovery, &token);
 
         (token, client, owner, recovery)
@@ -451,7 +451,7 @@ mod tests {
     #[test]
     fn test_transfer_rejects_frozen_wallet() {
         let env = Env::default();
-        let (token, client, _owner, recovery) = setup_wallet(&env, 1_000_000);
+        let (_token, client, _owner, recovery) = setup_wallet(&env, 1_000_000);
         let recipient = Address::generate(&env);
 
         client.add_whitelist(&recipient);
@@ -783,7 +783,7 @@ mod tests {
         let owner = Address::generate(&env);
         let recovery = Address::generate(&env);
         let token_admin = Address::generate(&env);
-        let token = env.register_stellar_asset_contract(token_admin.clone());
+        let token = env.register_stellar_asset_contract_v2(token_admin.clone()).address();
         client.initialize(&owner, &1_000_000, &recovery, &token);
 
         // Attempting to set the owner themselves as the new recovery key must fail.

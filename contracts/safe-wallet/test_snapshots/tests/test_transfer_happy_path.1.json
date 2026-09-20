@@ -44,6 +44,9 @@
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                },
+                {
+                  "address": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG"
                 }
               ]
             }
@@ -133,9 +136,6 @@
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
               "function_name": "transfer",
               "args": [
-                {
-                  "address": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG"
-                },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
                 },
@@ -331,6 +331,18 @@
                         "key": {
                           "vec": [
                             {
+                              "symbol": "TokenAddress"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "address": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG"
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
                               "symbol": "Whitelist"
                             }
                           ]
@@ -350,7 +362,7 @@
             },
             "ext": "v0"
           },
-          4095
+          1036800
         ]
       ],
       [
@@ -867,7 +879,7 @@
             },
             "ext": "v0"
           },
-          4095
+          1036800
         ]
       ]
     ]

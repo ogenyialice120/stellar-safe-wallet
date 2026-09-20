@@ -72,3 +72,29 @@ for the Wave Program's code quality criterion.
 
 **Why:** The evaluation criteria require a working demo. The original deploy.sh
 only deployed the contracts; it did not exercise any wallet policies.
+
+---
+
+## 2026-09-20 — tests/wallet-policy-coverage (follow-up, same PR #2)
+
+### Changes
+
+**contracts/safe-wallet/src/lib.rs** — Fixed two test-code issues:
+- Replaced deprecated `env.register_stellar_asset_contract(admin)` (called in
+  both `setup_wallet` and the inline `test_update_recovery_key_owner_as_new_key_fails`
+  setup) with `env.register_stellar_asset_contract_v2(admin).address()` as required
+  by soroban-sdk 22.0.11.
+- Renamed `token` to `_token` in `test_transfer_rejects_frozen_wallet` to suppress
+  the unused-variable warning.
+
+**contracts/safe-wallet/test_snapshots/tests/*.json** — Updated snapshot files.
+- Snapshots updated to reflect the new `TokenAddress` storage key now present in
+  all initialised wallet states (the new tests correctly set a token address during
+  `initialize`, which the original snapshots did not capture).
+
+**Local test run result:**
+- `cargo test --manifest-path contracts/safe-wallet/Cargo.toml`
+- 26 tests, 0 failures, 0 warnings.
+
+**Why:** The deprecated API call produced compiler warnings that would appear in CI
+output. Snapshot files are committed as truth so CI snapshot-diff checks pass.
