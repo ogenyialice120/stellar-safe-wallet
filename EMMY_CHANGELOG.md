@@ -45,12 +45,12 @@ paragraph and architecture doc now make this explicit.
 - `test_transfer_rejects_negative_amount` — verifies `-1` returns `ZeroAmount`.
 - `test_update_recovery_key_owner_as_new_key_fails` — verifies that setting
   owner as the new recovery key returns `Unauthorized`.
-- `test_initialize_accepts_zero_daily_cap` — verifies a zero cap is stored (no
-  validation error on init; transfers immediately exceed cap).
-- `test_transfer_exactly_at_daily_cap` — transfer of exactly `DailyCap` succeeds.
+- `test_initialize_zero_daily_cap_stores_and_blocks_transfers` — verifies a zero
+  cap is stored (no validation error on init; transfers immediately exceed cap).
+- `test_transfer_exactly_at_daily_cap_succeeds` — transfer of exactly `DailyCap` succeeds.
 - `test_transfer_one_over_daily_cap_fails` — transfer of `DailyCap + 1` fails.
-- `test_freeze_then_unfreeze_then_transfer_succeeds` — complete freeze/unfreeze
-  cycle followed by a successful transfer.
+- `test_freeze_rotate_unfreeze_transfer_cycle` — complete freeze → key rotation →
+  old key cannot unfreeze → new key unfreezes → transfer succeeds.
 
 **Why:** The existing tests left the `WhitelistFull` error path, negative amounts,
 and the owner-as-recovery-key guard completely untested. Full coverage is required
