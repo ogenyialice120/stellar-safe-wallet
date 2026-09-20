@@ -127,31 +127,6 @@
         }
       ]
     ],
-    [
-      [
-        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-        {
-          "function": {
-            "contract_fn": {
-              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "function_name": "transfer",
-              "args": [
-                {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
-                },
-                {
-                  "i128": {
-                    "hi": 0,
-                    "lo": 50000
-                  }
-                }
-              ]
-            }
-          },
-          "sub_invocations": []
-        }
-      ]
-    ],
     []
   ],
   "ledger": {
@@ -322,7 +297,7 @@
                         "val": {
                           "i128": {
                             "hi": 0,
-                            "lo": 50000
+                            "lo": 0
                           }
                         }
                       },
@@ -419,39 +394,6 @@
                 "key": {
                   "ledger_key_nonce": {
                     "nonce": 2032731177588607455
-                  }
-                },
-                "durability": "temporary",
-                "val": "void"
-              }
-            },
-            "ext": "v0"
-          },
-          6311999
-        ]
-      ],
-      [
-        {
-          "contract_data": {
-            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-            "key": {
-              "ledger_key_nonce": {
-                "nonce": 4270020994084947596
-              }
-            },
-            "durability": "temporary"
-          }
-        },
-        [
-          {
-            "last_modified_ledger_seq": 0,
-            "data": {
-              "contract_data": {
-                "ext": "v0",
-                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-                "key": {
-                  "ledger_key_nonce": {
-                    "nonce": 4270020994084947596
                   }
                 },
                 "durability": "temporary",
@@ -573,7 +515,7 @@
                       "val": {
                         "i128": {
                           "hi": 0,
-                          "lo": 150000
+                          "lo": 200000
                         }
                       }
                     },
@@ -647,79 +589,6 @@
                         "i128": {
                           "hi": 0,
                           "lo": 0
-                        }
-                      }
-                    },
-                    {
-                      "key": {
-                        "symbol": "authorized"
-                      },
-                      "val": {
-                        "bool": true
-                      }
-                    },
-                    {
-                      "key": {
-                        "symbol": "clawback"
-                      },
-                      "val": {
-                        "bool": false
-                      }
-                    }
-                  ]
-                }
-              }
-            },
-            "ext": "v0"
-          },
-          518400
-        ]
-      ],
-      [
-        {
-          "contract_data": {
-            "contract": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG",
-            "key": {
-              "vec": [
-                {
-                  "symbol": "Balance"
-                },
-                {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
-                }
-              ]
-            },
-            "durability": "persistent"
-          }
-        },
-        [
-          {
-            "last_modified_ledger_seq": 0,
-            "data": {
-              "contract_data": {
-                "ext": "v0",
-                "contract": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG",
-                "key": {
-                  "vec": [
-                    {
-                      "symbol": "Balance"
-                    },
-                    {
-                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
-                    }
-                  ]
-                },
-                "durability": "persistent",
-                "val": {
-                  "map": [
-                    {
-                      "key": {
-                        "symbol": "amount"
-                      },
-                      "val": {
-                        "i128": {
-                          "hi": 0,
-                          "lo": 50000
                         }
                       }
                     },
