@@ -1,4 +1,4 @@
-# EMMY_CHANGELOG
+# CHANGELOG
 
 This file is the single source of truth for all changes made to this repository
 as part of the Stellar Wave Program resubmission audit. Entries are appended in
