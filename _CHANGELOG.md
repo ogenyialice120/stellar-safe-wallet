@@ -358,3 +358,124 @@ partial auth entry requires the `MockAuth` builder, and constructing a
 is not straightforward in SDK 22.0.0. The test proves the function fails when
 all auth is absent; the dual-auth requirement is indirectly verified by the
 combination of the `require_owner` call and `current_recovery.require_auth()`.
+
+---
+
+## 2026-11-24 — docs/honest-docs-and-claims-audit
+
+### Changes
+
+**README.md** — Corrected false and misleading claims:
+- Removed "rolling 24-hour window" language; replaced with accurate description
+  of the fixed window and the 2× cap consequence.
+- Removed claim that the contract is "upgradeable" (no upgrade function exists).
+- Added honest note that the contract does not implement Soroban's
+  `__check_auth` custom-account interface.
+- Fixed feature table: key rotation note now states "both owner and recovery key
+  must sign" (was "recovery key can rotate keys").
+- Updated API table with new getters, events note, and all error codes.
+- Added Security model & limitations section with explicit gaps.
+- Added note that demo.sh has not been run against a live testnet in this repo.
+- Updated demo prerequisites to Rust 1.88+ and wasm32v1-none.
+
+**Why:** The old README claimed the wallet is "programmable, upgradeable, and
+auditable on-chain" (there is no upgrade function), described the daily window
+as rolling (it is fixed), and said the recovery key can "rotate keys" without
+noting dual-auth.
+
+---
+
+**docs/architecture.md** — Corrected false and misleading claims:
+- Added honest note that `__check_auth` is not implemented.
+- Removed AirdropContract section (airdrop was removed in Part A).
+- Updated transfer flow diagram to include overflow guard (step 6).
+- Updated "daily rolling window" to "fixed 24 h window, resets on transfer".
+- Updated error code table to include the three new variants from Part B.
+- Corrected "Storage TTL Management" section: TTL is now extended on every
+  state-changing call (was only init and transfer).
+
+**Why:** The old architecture.md described 9 error codes (now 12) and said
+TTL was extended only on init and transfer.
+
+---
+
+**docs/policies.md** — Corrected false and misleading claims:
+- Rewrote "rolling 24-hour window" as fixed window with explanation of the
+  2× cap consequence.
+- Removed claim "only the Owner can change the daily cap" (no such function).
+- Removed "no limit on whitelist size" (limit is 50).
+- Updated initialize CLI example: added required `--token` argument; switched
+  from `soroban` to `stellar` CLI.
+- Corrected "recovery key or owner can unfreeze" to "recovery key only".
+- Removed "freeze before a contract upgrade" use case (no upgrade function).
+- Removed link to "how to deploy and upgrade" in See Also.
+
+**Why:** The old policies.md had at least six factually wrong statements about
+contract behavior.
+
+---
+
+**docs/deployment.md** — Already corrected in Part A. No new changes.
+
+---
+
+**docs/claims-audit.md** — New file.
+
+**Why:** Part C requires a claims audit table linking every behavioral claim
+to its implementing function and test name. 54 rows; 42 VERIFIED,
+5 REWORDED (window type, upgrade claim, AA claim, unfreeze auth, whitelist
+size), 7 REMOVED (cap setter, upgrade use cases, the original zero-cap test).
+
+---
+
+**scripts/check_claims.sh** — New file.
+
+Checks:
+1. Every VERIFIED row has a non-empty, non-N/A test name.
+2. Every named test exists as `fn <name>` (whole word) in
+   `contracts/safe-wallet/src/test.rs`.
+3. Every status is one of: VERIFIED, REWORDED, REMOVED.
+
+Proves that a named test exists in the source file. Does not prove the test
+covers the claim — a human review is still needed for that.
+
+Tested against:
+- Real audit file: `check_claims: all rows passed.`
+- Broken file (nonexistent test name): detected with `FAILED [row 1]: test 'fn test_does_not_exist' not found`
+- Broken file (invalid status): detected all invalid-status rows.
+
+Added as a CI step in `.github/workflows/ci.yml`.
+
+---
+
+**SECURITY.md** — New file. Documents private vulnerability reporting process
+and known limitations.
+
+**Why:** Part C requires a SECURITY.md. The old CONTRIBUTING.md mentioned
+"security channels" without specifying them.
+
+---
+
+**CONTRIBUTING.md** — Added `bash scripts/check_claims.sh` to the PR checklist;
+added `docs/claims-audit.md` update requirement.
+
+**scripts/demo.sh** — Updated header: removed "Account Abstraction Wallet"
+label; added honest note that the script has not been run against a live
+testnet in this repository; clarified that step 12 (transfer after unfreeze)
+may be blocked if the daily cap was consumed earlier in the same window.
+
+**Why:** The demo.sh comment claimed to demonstrate an "Account Abstraction
+lifecycle" and implied the script had been run. Neither was true.
+
+---
+
+**Test results (commands run locally):**
+```
+cargo fmt --all -- --check    → no diff (clean)
+cargo clippy --workspace --all-targets -- -D warnings  → Finished, 0 warnings
+cargo build --workspace       → Finished dev profile
+cargo test --workspace        → 49 passed, 0 failed
+bash scripts/check_claims.sh  → all rows passed
+```
+
+No contract logic, test behavior, or error codes were changed in this part.

@@ -210,7 +210,8 @@ lifecycle on Stellar testnet:
 ```
 
 The script creates funded testnet keys, deploys a fresh wallet, and runs each
-step with annotated output.
+step with annotated output. The script has not been run against a live testnet
+in this repository; a documented testnet run will be added in a future update.
 
 ---
 

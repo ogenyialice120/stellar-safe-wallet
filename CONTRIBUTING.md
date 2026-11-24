@@ -101,8 +101,10 @@ Before opening a PR:
 - [ ] `cargo clippy --workspace --all-targets -- -D warnings` is clean.
 - [ ] `cargo test --workspace` passes.
 - [ ] `cargo build --release --target wasm32v1-none --manifest-path contracts/safe-wallet/Cargo.toml` succeeds.
+- [ ] `bash scripts/check_claims.sh` passes.
 - [ ] A new dated entry has been appended to `_CHANGELOG.md` (see format below).
 - [ ] `docs/` updated if any public API, error code, or behavior changed.
+- [ ] `docs/claims-audit.md` updated if a new behavioral claim was added or an existing one changed.
 
 ### Changelog entry format
 
