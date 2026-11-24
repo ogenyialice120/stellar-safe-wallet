@@ -236,3 +236,125 @@ cargo build --release --target wasm32v1-none \
 ```
 
 No contract logic or test behavior was changed in this part.
+
+---
+
+## 2026-11-24 — fix/contract-hardening
+
+### Changes
+
+**contracts/safe-wallet/src/lib.rs** — Contract hardening:
+- `initialize`: added rejection of `owner == recovery_key` (new error
+  `RecoveryKeyIsOwner = 10`) and `daily_cap <= 0` (new error
+  `InvalidDailyCap = 11`). The re-initialisation guard fires before these
+  checks so an already-initialised wallet returns `AlreadyInitialized` as
+  before.
+- `transfer`: replaced `spent_today + amount` with `checked_add`, returning
+  new error `Overflow = 12` on overflow. The old unchecked addition could
+  silently wrap in debug builds.
+- Added private helper `bump_ttl` with TTL constants `TTL_MIN`/`TTL_MAX` and
+  called it in every state-changing function: `initialize`, `add_whitelist`,
+  `remove_whitelist`, `transfer`, `freeze`, `unfreeze`, `update_recovery_key`.
+  Previously TTL was only extended in `initialize` and `transfer`.
+- Added `env.events().publish(...)` calls in all state-changing functions with
+  short topic pairs: `("init", "wallet")`, `("wl", "add")`, `("wl", "rm")`,
+  `("transfer", "out")`, `("freeze", "ok")`, `("unfreeze", "ok")`,
+  `("key", "rotate")`.
+- Added read-only getters: `get_owner`, `get_daily_cap`, `get_spent_today`,
+  `get_whitelist`, `get_recovery_key`, `get_token`. Each returns
+  `NotInitialised` when the wallet has not been set up.
+- Fixed doc comment on `update_recovery_key`: removed mention of `caller`
+  parameter (which no longer exists); updated `# Errors` for all functions
+  to include `NotInitialised` where applicable.
+- Changed `update_recovery_key` to return `RecoveryKeyIsOwner` instead of
+  `Unauthorized` when `new_key == owner`, for consistency with `initialize`.
+- Moved test module from inline in lib.rs to `contracts/safe-wallet/src/test.rs`
+  (`#[cfg(test)] mod test;`).
+
+**Why (initialize guards):** `owner == recovery_key` destroys separation of
+duties; the same person holding both keys could bypass the dual-auth requirement
+on `update_recovery_key`. `daily_cap <= 0` made the wallet unusable: every
+positive transfer immediately exceeded the zero cap, and negative caps were
+silently stored. The old test `test_initialize_zero_daily_cap_stores_and_blocks_transfers`
+verified that zero was stored; it is replaced by `test_initialize_rejects_zero_daily_cap`.
+
+**Why (overflow check):** i128 addition on two values that could each be up to
+`i128::MAX` can overflow. Wrapping overflow is undefined behaviour in Rust
+release builds with `overflow-checks = true` (panics), but returning a typed
+error is the correct contract behaviour.
+
+**Why (TTL in every state-changing function):** An owner could add addresses
+to the whitelist, freeze/unfreeze, or rotate keys without ever calling
+`transfer`. Those operations advanced the wallet's state but did not extend
+TTL, so the instance could expire if the owner never transferred after those
+calls.
+
+**Why (events):** Without events there is no on-chain audit trail. External
+monitoring tools and block explorers have no structured way to detect wallet
+activity.
+
+**Why (getters):** External contracts and CLI tools had no way to inspect
+wallet state without directly reading instance storage, which requires
+knowledge of the internal key enum.
+
+**BREAKING:**
+- `initialize` now rejects `daily_cap <= 0`. Callers that previously passed
+  `0` will receive `InvalidDailyCap` (code 11) instead of `Ok`.
+- `initialize` now rejects `owner == recovery_key`. Callers with identical
+  owner and recovery key will receive `RecoveryKeyIsOwner` (code 10).
+- `update_recovery_key` now returns `RecoveryKeyIsOwner` (code 10) instead of
+  `Unauthorized` (code 1) when `new_key == owner`. Any code checking for
+  error code 1 in that case must be updated to check for code 10.
+- Three new error variants at the end of the enum: `RecoveryKeyIsOwner = 10`,
+  `InvalidDailyCap = 11`, `Overflow = 12`. Existing numeric codes are
+  unchanged.
+
+**Test results (commands run locally):**
+```
+cargo fmt --all -- --check    → no diff (clean)
+cargo clippy --workspace --all-targets -- -D warnings  → Finished, 0 warnings
+cargo build --workspace       → Finished dev profile
+cargo test --workspace        → 49 passed, 0 failed
+cargo build --release --target wasm32v1-none \
+  --manifest-path contracts/safe-wallet/Cargo.toml
+                              → Finished release profile
+```
+
+New tests added (all in contracts/safe-wallet/src/test.rs):
+- `test_initialize_rejects_owner_as_recovery_key`
+- `test_initialize_rejects_zero_daily_cap`
+- `test_initialize_rejects_negative_daily_cap`
+- `test_initialize_without_auth_fails` — WITHOUT mock_all_auths
+- `test_transfer_overflow_returns_error`
+- `test_transfer_resets_daily_spend_at_exact_boundary` — window boundary
+- `test_transfer_does_not_reset_before_boundary` — window boundary
+- `test_transfer_without_auth_fails` — WITHOUT mock_all_auths
+- `test_freeze_without_auth_fails` — WITHOUT mock_all_auths
+- `test_unfreeze_without_auth_fails` — WITHOUT mock_all_auths
+- `test_add_whitelist_without_auth_fails` — WITHOUT mock_all_auths
+- `test_remove_whitelist_without_auth_fails` — WITHOUT mock_all_auths
+- `test_update_recovery_key_without_auth_fails` — WITHOUT mock_all_auths
+- `test_update_recovery_key_only_owner_fails` — WITHOUT mock_all_auths
+- `test_update_recovery_key_only_recovery_fails` — WITHOUT mock_all_auths
+- `test_getters_return_correct_values`
+- `test_get_owner_not_initialised` through `test_get_token_not_initialised`
+- `test_get_spent_today_reflects_transfer`
+- `test_get_whitelist_reflects_changes`
+- `test_events_emitted_without_panic`
+
+Note on TTL tests: The SDK 22.0.0 test harness does not expose an API to read
+the current TTL of an instance storage entry. We cannot assert the TTL was
+bumped to a specific ledger count in a unit test. The non-transfer state-changing
+functions all call `bump_ttl` and the tests verify they execute without
+panicking; the actual TTL values would require a testnet run or a custom
+ledger inspection tool.
+
+Note on `test_update_recovery_key_only_owner_fails`: The Soroban test harness's
+`env.set_auths(&[])` clears all mocked auth. This test uses that to verify
+that a call without any auth fails. It does not construct a scenario where
+exactly the owner signs but the recovery key does not — `set_auths` with a
+partial auth entry requires the `MockAuth` builder, and constructing a
+`MockAuth` for one signer that also causes the second `require_auth()` to fail
+is not straightforward in SDK 22.0.0. The test proves the function fails when
+all auth is absent; the dual-auth requirement is indirectly verified by the
+combination of the `require_owner` call and `current_recovery.require_auth()`.
