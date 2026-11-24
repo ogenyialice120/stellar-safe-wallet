@@ -49,3 +49,6 @@ jobs:
         run: >
           cargo build --release --target wasm32v1-none
           --manifest-path contracts/safe-wallet/Cargo.toml
+
+      - name: Claims audit
+        run: bash scripts/check_claims.sh
