@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# demo.sh — End-to-end testnet demo for Soroban Safe (Account Abstraction Wallet)
+# demo.sh — End-to-end testnet demo for Soroban Safe (policy wallet)
 #
-# This script demonstrates the full Account Abstraction lifecycle on Stellar Testnet:
+# This script exercises the full policy lifecycle on Stellar Testnet:
 #
-#   1. Build the WASM
+#   1. Build the WASM (wasm32v1-none target)
 #   2. Deploy the contract
 #   3. Initialize with a 50 XLM daily cap and a recovery key
 #   4. Add a whitelisted recipient
@@ -14,7 +14,12 @@
 #   9. Rotate the recovery key (requires both owner + old recovery key)
 #  10. Attempt unfreeze with old recovery key → Unauthorized error
 #  11. Unfreeze with the new recovery key
-#  12. Transfer after unfreeze → succeeds
+#  12. Transfer after unfreeze → succeeds (NOTE: daily cap not reset unless
+#       24 h has passed; step 12 may be blocked if the cap was consumed earlier)
+#
+# This script has not been run against a live testnet in this repository.
+# The logic is correct but network connectivity and CLI versions are not
+# verified here. See README for the planned testnet run documentation.
 #
 # Prerequisites:
 #   - Stellar CLI v22+  https://developers.stellar.org/docs/tools/developer-tools/stellar-cli
