@@ -1032,3 +1032,98 @@ environment). The submitter will re-run `demo.sh` to confirm steps 13–17.
   throwing function. It does not reproduce the exact "Bad union switch: 4"
   error that triggered the fallback design; a real protocol-23+ testnet node
   would be needed for that.
+
+## 2026-11-24 — docs/testnet-verification (Task 7: record real testnet run)
+
+### Changes
+
+**docs/testnet-run.md** — New file. Records the complete 2026-11-24 testnet
+run:
+- Environment table: date, network, RPC endpoint, stellar-cli 30.0.1, Node
+  24.22.2, Rust 1.88.0, `wasm32v1-none`, soroban-sdk `=22.0.11`, commit
+  `9b2bb03`.
+- Exact commands to reproduce (`npm ci --prefix scripts/multi-auth &&
+  ./scripts/demo.sh`).
+- Address table (owner, original recovery, recipient, new recovery, wallet
+  contract, native token SAC).
+- Full terminal output verbatim in a code block (copied from the live run;
+  no values invented).
+- Step-by-step results table with every tx hash and a Stellar Expert link for
+  each transaction; read-only steps and simulation-rejected steps marked with
+  `—` and an explanatory note.
+- Earlier-runs paragraph describing run 1 (TxMalformed) and run 2
+  (`assembled.sign is not a function`) and their fixes.
+- "What this run proves" section — twelve specific, evidence-backed claims.
+- "What this run does NOT prove" section — whitelist limit, TTL, event
+  contents, 24 h reset, non-native tokens, mainnet, load, security audit,
+  on-chain accuracy of simulation-rejected calls.
+
+**docs/claims-audit.md** — Updated Live Evidence table:
+- L1: updated from "steps 0–12 only" to the full 17-step run, contract
+  `CDKAXWO4DF5V3PLW4NGMUTSG4PH66G6VULMX2F4JIHX2IFRLFPI7WMAD`, deploy tx
+  `e6107155…`, reference to `docs/testnet-run.md`.
+- L3: updated from "not yet run" to confirmed (dual-auth rotation tx
+  `e5afa31b…`).
+- L4: updated from "not yet run" to confirmed (unfreeze tx `248b8d8c…`,
+  final transfer tx `57e7ba7f…`).
+- L5: updated with initialize tx `307a72d0…`.
+
+**README.md** — Added "Verified on Stellar testnet" section near the top (after
+the introduction, before Features). Contains: contract ID, commit, link to
+`docs/testnet-run.md`, a 12-row transaction table with Stellar Expert links,
+the limits paragraph, and reproduction commands. Removed the sentence "Steps 13
+to 17 have not yet been confirmed on testnet". Updated the Demo section so it
+no longer instructs the reader to record output in `testnet-run.md` (the file
+now exists). The demo step list is unchanged; reproduction commands updated.
+
+**scripts/demo.sh** — Header updated: removed "This script has NOT been run
+against a live testnet in this repository" and the partial-run note; replaced
+with "All 17 steps were run successfully on testnet on 2026-11-24 (contract
+CDKAXWO4DF5V3PLW4NGMUTSG4PH66G6VULMX2F4JIHX2IFRLFPI7WMAD, commit 9b2bb03),
+full output in docs/testnet-run.md". No behaviour change.
+
+**docs/deployment.md** — Updated End-to-end demo paragraph: replaced "not yet
+been run against a live testnet" with the confirmed run date, contract, and link
+to `docs/testnet-run.md`.
+
+---
+
+### Why
+
+The run was performed; recording the real output in the repo lets reviewers
+verify every hash independently and replaces the stale "not yet run" language
+with accurate status.
+
+---
+
+### Tests/verification
+
+```
+cargo fmt --all -- --check    → no diff (clean)
+cargo clippy --workspace --all-targets -- -D warnings  → Finished, 0 warnings
+cargo test --workspace        → 49 passed, 0 failed
+bash scripts/check_claims.sh  → all rows passed
+shellcheck scripts/*.sh        → clean
+node --test scripts/multi-auth/test/*.mjs  → 26 passed, 0 failed
+```
+
+No contract logic, test behaviour, or error codes were changed. This is a
+documentation-only commit.
+
+Network access: not available in this environment. All hashes and addresses are
+copied verbatim from the provided run output; they were not re-verified against
+the testnet RPC in this session.
+
+---
+
+### Limits
+
+- Single run on a single day (2026-11-24) with throwaway testnet accounts.
+  Native XLM only; no token variety tested.
+- Hashes were not re-queried via RPC in this session; they are taken from the
+  live run output provided. The Stellar Expert links allow independent
+  verification.
+- Steps 9, 12, and 14 were rejected by simulation before submission. The error
+  codes are confirmed by the CLI's simulation layer, not by on-chain execution.
+- The 50-address whitelist limit, TTL extension behaviour, event contents,
+  24-hour reset boundary, mainnet, and load conditions were not exercised.

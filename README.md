@@ -17,6 +17,47 @@ it only when all configured policies pass. Policy logic runs entirely on-chain.
 
 ---
 
+## ✅ Verified on Stellar testnet
+
+`scripts/demo.sh` ran to completion on **2026-11-24** on the Stellar testnet
+(Test SDF Network ; September 2015). All 17 steps passed and all assertions
+held.
+
+**Contract:** `CDKAXWO4DF5V3PLW4NGMUTSG4PH66G6VULMX2F4JIHX2IFRLFPI7WMAD`  
+**Commit:** `9b2bb03`  
+**Full output and all tx hashes:** [`docs/testnet-run.md`](docs/testnet-run.md)
+
+| Step | What it proves | Tx hash |
+|---|---|---|
+| 2 — deploy | Contract deploys on testnet | [`e6107155…`](https://stellar.expert/explorer/testnet/tx/e6107155641125c26dcb1516fe3ffc547aee7b9cabb003a7a12522f02d9cd698) |
+| 4 — initialize | 50 XLM cap, recovery key, native SAC token accepted | [`307a72d0…`](https://stellar.expert/explorer/testnet/tx/307a72d0d5442a967818800883558b6e6b2896b5d7071d3a7842c276d59ca7e7) |
+| 5 — fund | Wallet funded via native token SAC | [`578375de…`](https://stellar.expert/explorer/testnet/tx/578375deb73dcf354431c65316f1e328255cfa76d083bfdf59a1f8a79dd755c2) |
+| 7 — whitelist | Recipient added to whitelist | [`059ce288…`](https://stellar.expert/explorer/testnet/tx/059ce288cea5b7f1cd2ed59ab3ba2f17ec5ca61b3d21cb2be1461abb7ec1ec9c) |
+| 8 — transfer | 10 XLM sent; `spent_today` == 100 000 000 stroops | [`0c4426ed…`](https://stellar.expert/explorer/testnet/tx/0c4426ed378139ce6192876dad185e82e05f2232464913a7309bef045e560088) |
+| 9 — cap enforced | Over-cap transfer rejected (DailyCapExceeded, error 2) | — (simulation rejected) |
+| 10 — freeze | Recovery key freezes the wallet | [`14ceae71…`](https://stellar.expert/explorer/testnet/tx/14ceae711f1510081acc0cc086e3578398fe44386dbbdd372a7048efb27a45e6) |
+| 12 — frozen rejected | Transfer while frozen rejected (WalletFrozen, error 4) | — (simulation rejected) |
+| 13 — key rotation | Dual-auth rotation (owner + recovery key both sign) | [`e5afa31b…`](https://stellar.expert/explorer/testnet/tx/e5afa31b3459b4e6c94f0b84b90393a3d5d475a91eba317f7f3b712c08f921af) |
+| 14 — old key rejected | Old recovery key rejected (Unauthorized, error 1) | — (simulation rejected) |
+| 15 — unfreeze | New recovery key unfreezes the wallet | [`248b8d8c…`](https://stellar.expert/explorer/testnet/tx/248b8d8ca924a068a6ef1ca41390a3e716f848366c826d89e7b46a5ec67b9fb1) |
+| 17 — final transfer | 5 XLM transfer succeeds after unfreeze | [`57e7ba7f…`](https://stellar.expert/explorer/testnet/tx/57e7ba7f3af8280f119e1e6f7e9e402e171a6502d40dc69402bfabf94608a30a) |
+
+**Limits of this run:** single throwaway accounts, native XLM only, testnet
+only, one cap window, whitelist of one address. The 50-address limit, TTL
+extension, event contents, 24-hour reset boundary, and mainnet behaviour were
+not exercised. The contract has not been professionally audited.
+
+**To reproduce:**
+
+```bash
+# Prerequisites: Stellar CLI 22+, Rust 1.88.0 (rust-toolchain.toml pins it),
+#                Node.js >= 22.12.0
+npm ci --prefix scripts/multi-auth
+./scripts/demo.sh
+```
+
+---
+
 ## ✨ Features
 
 | Feature | Description |
@@ -215,18 +256,6 @@ Each step either calls `expect_ok` (fails the script on error) or `expect_error`
 the script if the call succeeds, or if it fails with the wrong error). The script prints
 a summary table with transaction hashes.
 
-```bash
-# Prerequisites: Stellar CLI v22+, Rust 1.88+ (rust-toolchain.toml pins it),
-#                Node.js >= 22.12.0 (required for step 13 multi-party signing)
-./scripts/demo.sh
-```
-
-The script creates funded testnet keys, deploys a fresh wallet, and runs each
-step with asserted outcomes. Steps 0 to 12 were confirmed on testnet on
-2026-11-24. **Steps 13 to 17 have not yet been confirmed on testnet** with
-this version of the script. Run it yourself and record the output in
-`docs/testnet-run.md` when done.
-
 Step 13 (recovery-key rotation) uses a Node.js helper
 (`scripts/multi-auth/rotate-recovery-key.mjs`) because `stellar tx sign` signs
 the transaction envelope, not the Soroban authorization entries that non-source
@@ -234,9 +263,18 @@ addresses require. `update_recovery_key` calls `require_auth()` on both the
 owner and the current recovery key; the recovery key's auth entry must be signed
 with `authorizeEntry()` from `@stellar/stellar-sdk`.
 
----
+```bash
+# Prerequisites: Stellar CLI v22+, Rust 1.88+ (rust-toolchain.toml pins it),
+#                Node.js >= 22.12.0 (required for step 13 multi-party signing)
+npm ci --prefix scripts/multi-auth
+./scripts/demo.sh
+```
 
-## 📚 Documentation
+The script creates funded testnet keys, deploys a fresh wallet, and runs each
+step with asserted outcomes. All 17 steps were confirmed on testnet on
+2026-11-24 (contract `CDKAXWO4DF5V3PLW4NGMUTSG4PH66G6VULMX2F4JIHX2IFRLFPI7WMAD`).
+See [`docs/testnet-run.md`](docs/testnet-run.md) for the full output, all
+transaction hashes, and the NOT-covered list.
 
 | Document | Description |
 |---|---|
