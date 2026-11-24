@@ -829,3 +829,206 @@ environment). The helper will be run by the submitter.
   (error codes 1 for Unauthorized, 4 for WalletFrozen are correct) but have not
   been run on testnet in this session.
 
+
+## 2026-11-24 — fix/helper-assembly (Task 6: multi-party signing helper assembly bug)
+
+### Changes
+
+**scripts/multi-auth/lib.mjs** — New file. Extracted shared pure logic from
+`rotate-recovery-key.mjs`:
+- `validateSecrets(env)` — validates OWNER_SECRET and RECOVERY_SECRET from an
+  env map, returns keypairs, throws descriptively on failure.
+- `classifyEntries(entries, ownerPublicKey, recoveryPublicKey)` — classifies a
+  list of `SorobanAuthorizationEntry` objects as 'source', 'owner', 'recovery',
+  or 'unknown'. Previously duplicated in the test file.
+- `signAuthEntries(entries, classifications, ownerKp, recoveryKp, validUntilLedger,
+  passphrase)` — calls `authorizeEntry` for recovery/owner entries, passes
+  source entries through unchanged, throws on 'unknown'.
+- `assembleAndSign(tx, sim, ownerKp)` — the central fix: calls
+  `assembleTransaction(tx, sim).build().sign(ownerKp)` in the correct order.
+  `assembleTransaction` returns a `TransactionBuilder`; `.build()` converts it
+  to a `Transaction`; only `Transaction` has `.sign()`.
+- `pollForResult(rpc, txHash, rawGetStatus, rpcUrl, opts)` — polls for
+  transaction status with an injected RPC object (testable), falls back to
+  `rawGetTransactionStatus` on SDK parse errors, throws on FAILED and timeout,
+  includes last error text in the timeout message.
+- `makeRawFallback(rpcUrl)` — returns a `fetch`-based fallback for SDK parse
+  errors, using the provided URL string (no private field access).
+- `rawGetTransactionStatus(rpcUrl, txHash)` — raw JSON-RPC POST that reads
+  only the status field.
+
+**scripts/multi-auth/rotate-recovery-key.mjs** — Rewritten to import from
+lib.mjs and to fix every SDK usage bug:
+
+1. **Assembly bug fixed**: `assembleTransaction(tx, sim)` returned a
+   `TransactionBuilder`. The old code called `.sign(ownerKp)` on it directly,
+   producing `FATAL: assembled.sign is not a function`. Fixed by calling
+   `.build()` first: `assembleTransaction(txWithAuth, sim2).build()` → then
+   `.sign(ownerKp)` on the returned `Transaction`.
+
+2. **Re-simulation step added**: After signing auth entries and rebuilding the
+   transaction with `auth: signedEntries`, a second simulation is run against
+   the transaction that already has the signed entries. `assembleTransaction`
+   then fills in the correct footprint and fee from that second simulation.
+   This is the correct Soroban flow: record → sign entries → enforce → assemble.
+
+3. **Private field removed**: The old code accessed `server._serverUrl` (which
+   does not exist — returns `undefined`) and `server.serverURL` (which is the
+   public `URI` object, present in the type declarations). Fixed by passing the
+   `rpcUrl` string the helper already has as an argument to `makeRawFallback`,
+   instead of reading any server field.
+
+4. **Account re-fetch**: The transaction rebuilt with signed auth entries uses
+   a fresh `getAccount` call so the sequence number is not stale.
+
+**scripts/multi-auth/test/rotate-recovery-key.test.mjs** — Rewritten:
+- **Imports `classifyEntries` and `validateSecrets` from `../lib.mjs`** instead
+  of re-defining local copies. The test now exercises the shipped code.
+- Added four `assembleAndSign` tests using a real `Transaction` built with
+  `TransactionBuilder` and an `invokeContractFunction` operation, with a fake
+  simulation response constructed from real SDK types (`SorobanDataBuilder`,
+  `xdr.ScVal.scvVoid()`):
+  - Asserts the result is a `Transaction` (has `.sign`, lacks `.build`).
+  - Asserts the signatures array is non-empty after signing.
+  - Asserts the signature verifies against the owner public key.
+  - Asserts auth entries from the operation are preserved.
+- Added eight `pollForResult` tests using an injected fake RPC object:
+  - SUCCESS immediately.
+  - NOT_FOUND → NOT_FOUND → SUCCESS.
+  - PENDING → SUCCESS.
+  - FAILED throws.
+  - SDK parse error with raw fallback reporting SUCCESS.
+  - SDK parse error with raw fallback reporting FAILED throws.
+  - Both SDK and raw fallback fail until deadline; error message contains last
+    error text.
+  - Status stays NOT_FOUND until deadline; error message mentions "Timed out".
+
+Total: 26 tests (was 14). All 14 original tests still pass against the real code.
+
+**docs/claims-audit.md** — Updated Live Evidence table:
+- L1: updated to record second testnet run on 2026-11-24, contract
+  `CB3HSYHEVLFCFQJDJMBS52CH5S67FOBRTZTQT3O7JDHUF6CHQ72FNBM4`, steps 0–12
+  observed; step 13 failed with `assembled.sign is not a function`.
+- L2b: added row documenting the assembly failure observed on 2026-11-24 and
+  the fix applied in this branch.
+- L3: updated to reference Part 6 corrected script; still pending testnet run.
+
+---
+
+### Why
+
+**The assembly bug (`.sign is not a function`):** `assembleTransaction` is
+documented and typed as returning `TransactionBuilder`. `Transaction.sign` and
+`TransactionBuilder.build` are separate methods on separate classes. The error
+was introduced because the old code treated the return of `assembleTransaction`
+as if it were already a `Transaction`. Adding `.build()` between
+`assembleTransaction()` and `.sign()` is the complete fix.
+
+**The re-simulation step:** Soroban's authorisation model requires two
+simulation passes. The first pass (recording) collects the auth entries the
+contract needs. After signing those entries and embedding them back into the
+operation, a second pass (enforcing) produces the correct ledger footprint and
+resource fee for the signed version. Skipping the second pass means the fee and
+footprint come from the first simulation, which may have a different auth state.
+
+**The private field removal:** `server._serverUrl` returned `undefined` at
+runtime (confirmed with `node -e`). The public field is `server.serverURL`
+(a URI object). Instead of accessing the server instance at all, the raw
+fallback now takes the RPC URL string directly from the argument already
+available in `main()`.
+
+**The test restructure:** The test file previously defined its own copy of
+`classifyEntries` that was structurally identical to the shipped function but
+could diverge silently. The assembly and polling functions had no tests at all,
+which is why the assembly bug survived. Extracting all logic into `lib.mjs` and
+importing it into the test file means the tests now run the same code that
+ships.
+
+---
+
+### SDK signatures verified from node_modules/@stellar/stellar-sdk 13.3.0
+
+Verified by reading the actual `.d.ts` and `.js` files in
+`scripts/multi-auth/node_modules/@stellar/stellar-sdk/`:
+
+```
+// @stellar/stellar-sdk/rpc (lib/rpc/transaction.d.ts)
+assembleTransaction(
+  raw: Transaction | FeeBumpTransaction,
+  simulation: Api.SimulateTransactionResponse | Api.RawSimulateTransactionResponse
+): TransactionBuilder
+
+// @stellar/stellar-base (lib/rpc/server.d.ts, via types/index.d.ts)
+rpc.Server constructor(serverURL: string, opts?: RpcServer.Options): RpcServer
+rpc.Server.serverURL: URI   // public field — URI object from 'urijs'
+rpc.Server.simulateTransaction(tx: Transaction | FeeBumpTransaction, addlResources?): Promise<Api.SimulateTransactionResponse>
+rpc.Server.getTransaction(hash: string): Promise<Api.GetTransactionResponse>
+rpc.Server.sendTransaction(transaction: Transaction | FeeBumpTransaction): Promise<Api.SendTransactionResponse>
+
+// @stellar/stellar-base (types/index.d.ts)
+TransactionBuilder.build(): Transaction
+Transaction.sign(...keypairs: Keypair[]): void
+
+// @stellar/stellar-base (types/index.d.ts)
+authorizeEntry(
+  entry: xdr.SorobanAuthorizationEntry,
+  signer: Keypair | SigningCallback,
+  validUntilLedgerSeq: number,
+  networkPassphrase?: string
+): Promise<xdr.SorobanAuthorizationEntry>
+
+// @stellar/stellar-base (types/index.d.ts)
+Operation.invokeContractFunction(opts: OperationOptions.InvokeContractFunction): xdr.Operation<InvokeHostFunction>
+// where InvokeContractFunction: { contract: string; function: string; args: xdr.ScVal[]; auth?: xdr.SorobanAuthorizationEntry[] }
+
+// @stellar/stellar-sdk/rpc (lib/rpc/api.d.ts)
+Api.SimulateHostFunctionResult: { auth: xdr.SorobanAuthorizationEntry[]; retval: xdr.ScVal; }
+Api.SimulateTransactionSuccessResponse: { transactionData: SorobanDataBuilder; minResourceFee: string; result?: SimulateHostFunctionResult; _parsed: boolean; }
+Api.GetTransactionStatus enum: { SUCCESS = "SUCCESS", NOT_FOUND = "NOT_FOUND", FAILED = "FAILED" }
+Api.SendTransactionStatus: 'PENDING' | 'DUPLICATE' | 'TRY_AGAIN_LATER' | 'ERROR'
+```
+
+---
+
+### Tests/verification
+
+```
+node --test scripts/multi-auth/test/*.mjs
+  → 26 passed, 0 failed
+
+shellcheck scripts/*.sh
+  → clean (exit 0)
+
+cargo fmt --all -- --check
+  → no diff (clean)
+
+cargo clippy --workspace --all-targets -- -D warnings
+  → Finished dev profile, 0 warnings
+
+cargo test --workspace
+  → 49 passed, 0 failed
+
+bash scripts/check_claims.sh
+  → all rows passed
+```
+
+Testnet run of steps 13–17: **not performed** (no network access in this
+environment). The submitter will re-run `demo.sh` to confirm steps 13–17.
+
+---
+
+### Limits
+
+- Steps 13–17 of `demo.sh` have not been run on testnet. The assembly and
+  signing logic follows the verified SDK types; network acceptance is not
+  confirmed.
+- The `assembleAndSign` tests use a stub simulation response with fee `'100'`
+  and an empty footprint. The resulting transaction has a different fee and
+  footprint than a real network simulation would produce.
+- The polling tests use injected fake RPCs with zero `pollIntervalMs`. Real
+  network timing, TRY_AGAIN_LATER status handling, and duplicate-submission
+  behaviour are not covered.
+- The test for "SDK parse error with raw fallback" uses a hardcoded fake
+  throwing function. It does not reproduce the exact "Bad union switch: 4"
+  error that triggered the fallback design; a real protocol-23+ testnet node
+  would be needed for that.

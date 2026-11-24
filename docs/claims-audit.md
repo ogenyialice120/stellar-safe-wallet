@@ -85,8 +85,9 @@ the VERIFIED rows in the table above).
 
 | # | Claim | Evidence | Date |
 |---|---|---|---|
-| L1 | `scripts/demo.sh` steps 0–12 run to completion on testnet with all assertions passing | Steps 0–12 observed in a live run. Contract `CASPY7BHTYBE77EELEPZRFMJJV3WN4B7SA4HWRL6YDOCDP72JCYH5VBX`, native token SAC `CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC`. Steps 13–17 were NOT confirmed in that run because step 13 failed with TxMalformed (see L2). | 2026-11-24 |
+| L1 | `scripts/demo.sh` steps 0–12 run to completion on testnet with all assertions passing | Steps 0–12 observed in a second live run on 2026-11-24. Contract `CB3HSYHEVLFCFQJDJMBS52CH5S67FOBRTZTQT3O7JDHUF6CHQ72FNBM4`. Steps 13–17 were NOT confirmed in either run; step 13 failed with `FATAL: assembled.sign is not a function` (see L2b). | 2026-11-24 |
 | L2 | Step 13 (`--build-only` / `stellar tx sign` approach) produced TxMalformed | Observed failure: tx hash `c599c663271d026c8bfa9560af9dd7c75ba2ca0825e09a5338058a29e5558fea` was rejected with `TxMalformed`. Root cause: `stellar tx sign` signs the envelope, not the Soroban auth entry for the recovery key. | 2026-11-24 |
-| L3 | Revised step 13 (`rotate-recovery-key.mjs` using `authorizeEntry`) correctly rotates the key on-chain | Not yet run on testnet — pending a full run with the new script | — |
+| L2b | Step 13 with `rotate-recovery-key.mjs` (Part 5 version) crashed at assembly | Observed failure: `FATAL: assembled.sign is not a function`. Root cause: `assembleTransaction` returns a `TransactionBuilder`; `.sign()` is on `Transaction`, not `TransactionBuilder`. Fixed in Part 6 (this branch) by calling `.build()` before `.sign()`. | 2026-11-24 |
+| L3 | Revised step 13 (`rotate-recovery-key.mjs` Part 6, using correct `assembleTransaction().build().sign()` sequence) correctly rotates the key on-chain | Not yet run on testnet — pending a full run with the corrected script | — |
 | L4 | Steps 14–17 execute correctly after key rotation (old key rejected, new key unfreezes, final transfer succeeds) | Not yet run on testnet | — |
 | L5 | Native token SAC address resolved by `stellar contract id asset --asset native` matches the token accepted by `initialize` | Confirmed in the 2026-11-24 run (token SAC `CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC` used successfully for initialize and fund steps) | 2026-11-24 |
