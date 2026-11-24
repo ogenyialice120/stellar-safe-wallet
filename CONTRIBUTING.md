@@ -26,6 +26,8 @@ must be professional, constructive, and inclusive.
   toolchain automatically. After installing `rustup`, run any `cargo` command
   and it will download the correct toolchain.
 - **Stellar CLI v22+**: https://developers.stellar.org/docs/tools/developer-tools/stellar-cli
+- **Node.js >= 22.12.0** and npm — required for the multi-party auth helper used
+  in `scripts/demo.sh` step 13. Install from https://nodejs.org/en/download/
 
 ### Clone and build
 
@@ -103,6 +105,7 @@ Before opening a PR:
 - [ ] `cargo build --release --target wasm32v1-none --manifest-path contracts/safe-wallet/Cargo.toml` succeeds.
 - [ ] `bash scripts/check_claims.sh` passes.
 - [ ] `shellcheck scripts/*.sh` is clean (install from https://github.com/koalaman/shellcheck/releases).
+- [ ] `npm ci --prefix scripts/multi-auth && npm test --prefix scripts/multi-auth` passes.
 - [ ] A new dated entry has been appended to `_CHANGELOG.md` (see format below).
 - [ ] `docs/` updated if any public API, error code, or behavior changed.
 - [ ] `docs/claims-audit.md` updated if a new behavioral claim was added or an existing one changed.

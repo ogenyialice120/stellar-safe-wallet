@@ -87,7 +87,15 @@ live testnet** in this repository. When you run it, record the output in
 ./scripts/demo.sh
 ```
 
-Prerequisites: Stellar CLI v22+ and Rust 1.88.0 (from `rust-toolchain.toml`).
+Prerequisites: Stellar CLI v22+, Rust 1.88.0 (from `rust-toolchain.toml`), and
+Node.js >= 22.12.0 (for step 13's multi-party auth helper).
+
+**Why Node.js is required for step 13:** `stellar tx sign` signs the transaction
+*envelope*. It cannot sign the Soroban authorization entries that non-source
+addresses need. `update_recovery_key` calls `require_auth()` on both the owner
+and the current recovery key; the recovery key's auth entry must be signed with
+`authorizeEntry()` from `@stellar/stellar-sdk`. The helper in
+`scripts/multi-auth/rotate-recovery-key.mjs` does this correctly.
 
 ## Stellar CLI installation
 
