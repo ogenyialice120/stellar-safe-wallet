@@ -18,8 +18,7 @@
 #
 # Prerequisites:
 #   - Stellar CLI v22+  https://developers.stellar.org/docs/tools/developer-tools/stellar-cli
-#   - Rust with wasm32-unknown-unknown target:
-#       rustup target add wasm32-unknown-unknown
+#   - Rust 1.88+ with wasm32v1-none target (rust-toolchain.toml pins this automatically)
 #
 # Usage:
 #   ./scripts/demo.sh [--network NETWORK]
@@ -46,7 +45,7 @@ TRANSFER_AMOUNT="100000000"
 # Attempt to send 45 XLM after already sending 10 XLM (total 55 XLM > 50 XLM cap)
 EXCEEDING_AMOUNT="450000001"
 
-WASM="target/wasm32-unknown-unknown/release/safe_wallet.wasm"
+WASM="target/wasm32v1-none/release/safe_wallet.wasm"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -93,8 +92,8 @@ info "Recipient address:    $RECIPIENT_ADDR"
 info "New recovery address: $NEW_RECOVERY_ADDR"
 
 # ─── Step 1: Build ───────────────────────────────────────────────────────────
-step 1 "Build Soroban contracts"
-cargo build --target wasm32-unknown-unknown --release 2>&1 | tail -5
+step 1 "Build safe-wallet contract (wasm32v1-none)"
+cargo build --release --target wasm32v1-none --manifest-path contracts/safe-wallet/Cargo.toml 2>&1 | tail -5
 ok "Build complete: $WASM"
 
 # ─── Step 2: Deploy ──────────────────────────────────────────────────────────

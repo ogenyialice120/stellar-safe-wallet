@@ -1,9 +1,6 @@
 #![no_std]
 
-use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype,
-    token, Address, Env, Vec,
-};
+use soroban_sdk::{contract, contracterror, contractimpl, contracttype, token, Address, Env, Vec};
 
 // ---------------------------------------------------------------------------
 // Storage keys
@@ -30,15 +27,15 @@ pub enum DataKey {
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[repr(u32)]
 pub enum WalletError {
-    Unauthorized       = 1,
-    DailyCapExceeded   = 2,
+    Unauthorized = 1,
+    DailyCapExceeded = 2,
     AddressNotWhitelisted = 3,
-    WalletFrozen       = 4,
-    ZeroAmount         = 5,
-    NotInitialised     = 6,
+    WalletFrozen = 4,
+    ZeroAmount = 5,
+    NotInitialised = 6,
     AlreadyInitialized = 7,
     AlreadyWhitelisted = 8,
-    WhitelistFull      = 9,
+    WhitelistFull = 9,
 }
 
 // Maximum number of whitelisted addresses.
@@ -87,7 +84,9 @@ impl SafeWallet {
 
         env.storage().instance().set(&DataKey::Owner, &owner);
         env.storage().instance().set(&DataKey::DailyCap, &daily_cap);
-        env.storage().instance().set(&DataKey::RecoveryKey, &recovery_key);
+        env.storage()
+            .instance()
+            .set(&DataKey::RecoveryKey, &recovery_key);
         env.storage().instance().set(&DataKey::TokenAddress, &token);
         env.storage().instance().set(&DataKey::Frozen, &false);
         env.storage().instance().set(&DataKey::SpentToday, &0_i128);
@@ -194,11 +193,7 @@ impl SafeWallet {
     /// - `AddressNotWhitelisted` — recipient is not whitelisted.
     /// - `DailyCapExceeded`      — transfer would exceed the daily cap.
     /// - `NotInitialised`        — wallet has no token or daily cap configured.
-    pub fn transfer(
-        env: Env,
-        to: Address,
-        amount: i128,
-    ) -> Result<(), WalletError> {
+    pub fn transfer(env: Env, to: Address, amount: i128) -> Result<(), WalletError> {
         Self::require_owner(&env)?;
 
         if amount <= 0 {
@@ -267,8 +262,11 @@ impl SafeWallet {
             .instance()
             .get(&DataKey::TokenAddress)
             .ok_or(WalletError::NotInitialised)?;
-        token::Client::new(&env, &token_address)
-            .transfer(&env.current_contract_address(), &to, &amount);
+        token::Client::new(&env, &token_address).transfer(
+            &env.current_contract_address(),
+            &to,
+            &amount,
+        );
 
         Ok(())
     }
@@ -381,9 +379,9 @@ impl SafeWallet {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use soroban_sdk::{testutils::Address as _, Env};
-    use soroban_sdk::token::{self, StellarAssetClient};
     use soroban_sdk::testutils::Ledger as _;
+    use soroban_sdk::token::{self, StellarAssetClient};
+    use soroban_sdk::{testutils::Address as _, Env};
 
     // -----------------------------------------------------------------------
     // Helpers
@@ -391,14 +389,19 @@ mod tests {
 
     /// Sets up a fully initialised wallet and returns
     /// (token_address, client, owner, recovery).
-    fn setup_wallet(env: &Env, daily_cap: i128) -> (Address, SafeWalletClient<'static>, Address, Address) {
+    fn setup_wallet(
+        env: &Env,
+        daily_cap: i128,
+    ) -> (Address, SafeWalletClient<'static>, Address, Address) {
         env.mock_all_auths();
         let contract_id = env.register(SafeWallet, ());
         let client = SafeWalletClient::new(env, &contract_id);
         let owner = Address::generate(env);
         let recovery = Address::generate(env);
         let token_admin = Address::generate(env);
-        let token = env.register_stellar_asset_contract_v2(token_admin.clone()).address();
+        let token = env
+            .register_stellar_asset_contract_v2(token_admin.clone())
+            .address();
         client.initialize(&owner, &daily_cap, &recovery, &token);
 
         (token, client, owner, recovery)
@@ -444,8 +447,14 @@ mod tests {
 
         client.transfer(&recipient, &100_000);
 
-        assert_eq!(token::Client::new(&env, &token).balance(&recipient), 100_000);
-        assert_eq!(token::Client::new(&env, &token).balance(&client.address), 400_000);
+        assert_eq!(
+            token::Client::new(&env, &token).balance(&recipient),
+            100_000
+        );
+        assert_eq!(
+            token::Client::new(&env, &token).balance(&client.address),
+            400_000
+        );
     }
 
     #[test]
@@ -457,7 +466,6 @@ mod tests {
         client.add_whitelist(&recipient);
 
         client.freeze(&recovery);
-
 
         assert_eq!(
             client.try_transfer(&recipient, &100_000),
@@ -509,10 +517,9 @@ mod tests {
 
         client.transfer(&recipient, &100_000);
 
-
-        env.ledger().set_timestamp(env.ledger().timestamp() + 86_401);
+        env.ledger()
+            .set_timestamp(env.ledger().timestamp() + 86_401);
         client.transfer(&recipient, &100_000);
-
     }
 
     #[test]
@@ -522,7 +529,6 @@ mod tests {
         let recipient = Address::generate(&env);
 
         client.add_whitelist(&recipient);
-
 
         assert_eq!(
             client.try_transfer(&recipient, &0),
@@ -644,7 +650,6 @@ mod tests {
 
         // This call succeeds under mock_all_auths; auth hardening is covered in issue #20
         client.remove_whitelist(&addr);
-
     }
 
     // -----------------------------------------------------------------------
@@ -690,7 +695,10 @@ mod tests {
 
         client.transfer(&recipient, &100_000);
 
-        assert_eq!(token::Client::new(&env, &token).balance(&recipient), 100_000);
+        assert_eq!(
+            token::Client::new(&env, &token).balance(&recipient),
+            100_000
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -747,7 +755,10 @@ mod tests {
 
         // Should succeed — exactly hits the cap.
         client.transfer(&recipient, &100_000);
-        assert_eq!(token::Client::new(&env, &token).balance(&recipient), 100_000);
+        assert_eq!(
+            token::Client::new(&env, &token).balance(&recipient),
+            100_000
+        );
     }
 
     /// Transferring daily_cap + 1 must fail with `DailyCapExceeded`.
@@ -783,7 +794,9 @@ mod tests {
         let owner = Address::generate(&env);
         let recovery = Address::generate(&env);
         let token_admin = Address::generate(&env);
-        let token = env.register_stellar_asset_contract_v2(token_admin.clone()).address();
+        let token = env
+            .register_stellar_asset_contract_v2(token_admin.clone())
+            .address();
         client.initialize(&owner, &1_000_000, &recovery, &token);
 
         // Attempting to set the owner themselves as the new recovery key must fail.

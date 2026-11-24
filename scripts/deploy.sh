@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploy the safe-wallet and airdrop contracts to Stellar Testnet.
+# Deploy the safe-wallet contract to a Stellar network.
 #
 # Usage:
 #   ./scripts/deploy.sh [--network NETWORK]
@@ -8,7 +8,7 @@
 #   NETWORK=testnet
 #
 # Prerequisites:
-#   - Rust toolchain with wasm32-unknown-unknown target
+#   - Rust 1.88+ with wasm32v1-none target (rust-toolchain.toml pins this)
 #   - Stellar CLI v22+ (https://developers.stellar.org/docs/tools/developer-tools/stellar-cli)
 
 set -euo pipefail
@@ -42,8 +42,7 @@ RPC_URL="${RPC_URL:-https://soroban-testnet.stellar.org}"
 PASSPHRASE="${PASSPHRASE:-Test SDF Network ; September 2015}"
 
 DEPLOYER_KEY="deployer"
-SAFE_WALLET_WASM="target/wasm32-unknown-unknown/release/safe_wallet.wasm"
-AIRDROP_WASM="target/wasm32-unknown-unknown/release/airdrop.wasm"
+SAFE_WALLET_WASM="target/wasm32v1-none/release/safe_wallet.wasm"
 
 echo "==> Target network: $NETWORK"
 
@@ -64,16 +63,11 @@ fi
 echo "==> Funding deployer account"
 stellar keys fund "$DEPLOYER_KEY" --network "$NETWORK" || true
 
-echo "==> Building contracts"
-cargo build --target wasm32-unknown-unknown --release
+echo "==> Building safe-wallet contract (wasm32v1-none)"
+cargo build --release --target wasm32v1-none --manifest-path contracts/safe-wallet/Cargo.toml
 
 if [[ ! -f "$SAFE_WALLET_WASM" ]]; then
   echo "Missing SafeWallet wasm: $SAFE_WALLET_WASM" >&2
-  exit 1
-fi
-
-if [[ ! -f "$AIRDROP_WASM" ]]; then
-  echo "Missing Airdrop wasm: $AIRDROP_WASM" >&2
   exit 1
 fi
 
@@ -84,15 +78,7 @@ SAFE_WALLET_ID=$(stellar contract deploy \
   --network "$NETWORK")
 echo "SafeWallet contract ID: $SAFE_WALLET_ID"
 
-echo "==> Deploying Airdrop"
-AIRDROP_ID=$(stellar contract deploy \
-  --wasm "$AIRDROP_WASM" \
-  --source "$DEPLOYER_KEY" \
-  --network "$NETWORK")
-echo "Airdrop contract ID: $AIRDROP_ID"
-
 echo ""
 echo "Deployment complete!"
-echo "  Network:          $NETWORK"
-echo "  SafeWallet ID:    $SAFE_WALLET_ID"
-echo "  Airdrop ID:       $AIRDROP_ID"
+echo "  Network:       $NETWORK"
+echo "  SafeWallet ID: $SAFE_WALLET_ID"

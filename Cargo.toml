@@ -2,12 +2,13 @@
 resolver = "2"
 members = [
     "contracts/safe-wallet",
-    "contracts/airdrop",
-    "contracts/test-utils",
 ]
 
+[workspace.package]
+rust-version = "1.88.0"
+
 [workspace.dependencies]
-soroban-sdk = { version = "22.0.0" }
+soroban-sdk = { version = "=22.0.0" }
 
 [profile.release]
 opt-level = "z"
@@ -23,5 +24,11 @@ lto = true
 inherits = "release"
 debug-assertions = true
 
+# soroban-env-host 22.1.3 pulls in ed25519-dalek 3.0.0, which depends on
+# rand_core 0.6 via its own re-export.  rand 0.8 (also pulled in) uses
+# rand_core 0.6 from a *different* semver-incompatible resolution, causing a
+# trait-implementation conflict at compile time in the testutils build.
+# The git tag below is the version that soroban-sdk 22.x was originally tested
+# against and that correctly unifies the rand_core dependency.
 [patch.crates-io]
 ed25519-dalek = { git = "https://github.com/dalek-cryptography/curve25519-dalek", tag = "ed25519-2.2.0" }

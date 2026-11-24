@@ -1,88 +1,131 @@
 # Contributing to Stellar Safe Wallet
 
-First off, thank you for checking out the project and taking the time to contribute! 🎉 
+Thank you for taking the time to contribute.
 
-`stellar-safe-wallet` introduces programmable Account Abstraction to Stellar using Soroban. Because this contract handles asset custody, security policies, and key recovery routines, community code reviews, optimizations, and additions are critical to keeping the system robust.
+`stellar-safe-wallet` is a Soroban policy wallet. It enforces spending caps,
+address whitelists, emergency freeze, and recovery-key rotation entirely within
+a Soroban contract. Because this contract handles asset custody, security
+reviews and correctness improvements are especially valuable.
 
-Please take a moment to review this document before submitting your first Pull Request (PR) to ensure a smooth review and integration process.
-
----
-
-## 🗺️ Code of Conduct
-
-By participating in this project, you agree to uphold our `CODE_OF_CONDUCT.md`. We expect all communication to be professional, constructive, and inclusive. Harassment or exclusionary behavior will not be tolerated.
+Please read this guide before opening your first pull request.
 
 ---
 
-## 🛠️ Development Workspace Setup
+## Code of Conduct
 
-This repository is set up as a multi-contract Cargo workspace. You will need your environment configured for Soroban development before diving in.
+By participating you agree to uphold `CODE_OF_CONDUCT.md`. All communication
+must be professional, constructive, and inclusive.
+
+---
+
+## Development Setup
 
 ### Prerequisites
-* **Rust**: Version 1.74+
-* **Stellar CLI**: Version v22+
-* **Target**: `wasm32-unknown-unknown` target installed via rustup
 
-### Local Project Setup
-1. **Fork and clone** the repository:
-   ```bash
-   git clone https://github.com
-   cd stellar-safe-wallet
-   ```
-2. **Add the WASM target**:
-   ```bash
-   rustup target add wasm32-unknown-unknown
-   ```
-3. **Build the entire workspace** (builds core wallet, testing utilities, and airdrop modules):
-   ```bash
-   cargo build --target wasm32-unknown-unknown --release
-   ```
-4. **Run the test suite** to ensure your environment is working cleanly:
-   ```bash
-   cargo test
-   ```
+- **Rust 1.88.0** — the `rust-toolchain.toml` in the repository root pins the
+  toolchain automatically. After installing `rustup`, run any `cargo` command
+  and it will download the correct toolchain.
+- **Stellar CLI v22+**: https://developers.stellar.org/docs/tools/developer-tools/stellar-cli
 
----
+### Clone and build
 
-## 💡 How to Contribute
+```bash
+git clone https://github.com/ogenyialice120/stellar-safe-wallet.git
+cd stellar-safe-wallet
 
-### 1. Reporting Bugs & Security Flaws
-Because this is a smart contract wallet managing real assets, security is our top priority. 
-* **Critical Vulnerabilities**: If you spot a critical flaw (e.g., policy bypasses, re-entrancy issues, storage exploits), **do not open a public issue**. Please contact the maintainer directly via the security channels listed in the project root.
-* **Standard Bugs**: For non-security bugs (e.g., client script errors, CLI issues), open a standard GitHub Issue with explicit steps to reproduce the behavior.
+# Build (native, for tests)
+cargo build --workspace
 
-### 2. Proposing Enhancements
-Have ideas for webauthn passkey support, multi-token allowance matrices, or gasless meta-transactions? 
-* Open an **Issue** to discuss your proposed changes before writing code. This saves you time by ensuring your architecture lines up with the project's strategic roadmap.
+# Build WASM for deployment — wasm32v1-none produces network-compatible output.
+# (wasm32-unknown-unknown enables reference-types from Rust 1.82+, which the
+#  Stellar network rejects.)
+cargo build --release --target wasm32v1-none \
+  --manifest-path contracts/safe-wallet/Cargo.toml
+```
 
-### 3. Writing Code & Policies
-When building your branch:
-* **Branch Strategy**: Branch off `main` using descriptive naming conventions (`feature/merkle-airdrop-logic` or `fix/ttl-extension-bug`).
-* **Rust Cleanliness**: Ensure your code passes standard styling checks cleanly. Run `cargo fmt` and verify that `cargo clippy` flags zero warnings.
-* **Coverage Mandate**: Any modification to wallet policies, limits, or whitelisting structures must include corresponding test scenarios inside the `tests/` directory or `lib.rs` file.
+### Run the test suite
+
+```bash
+cargo test --workspace
+```
+
+### Lint and format
+
+```bash
+cargo fmt --all
+cargo clippy --workspace --all-targets -- -D warnings
+```
+
+CI enforces both. A PR that introduces a clippy warning or a formatting diff
+will not be merged.
 
 ---
 
-## 🧪 Testing Guidelines (Crucial)
+## How to Contribute
 
-Since the wallet enforces **daily spending caps** and **Storage TTL expansions**, standard tests must mock ledger states accurately. When adding tests, make sure to simulate:
-1. **Ledger Time Rollbacks**: Verify that rolling 24-hour caps correctly reset or cascade after the appropriate ledger sequence or timestamp has passed.
-2. **Auth Failures**: Explicitly test that unauthorized addresses attempting to invoke admin, owner, or recovery keys throw precise contract errors.
+### Reporting security vulnerabilities
 
----
+Do **not** open a public issue for security bugs. See `SECURITY.md` for the
+private reporting process.
 
-## 📑 Pull Request Checklists
+### Reporting other bugs
 
-Before opening your pull request, double-check that your work ticks all of these boxes:
+Open a GitHub issue with steps to reproduce.
 
-* [ ] Code compiles perfectly against the `wasm32-unknown-unknown` target.
-* [ ] All unit and integration tests pass successfully (`cargo test`).
-* [ ] The code is neatly formatted using `cargo fmt`.
-* [ ] Code changes do not introduce new `clippy` compiler warnings.
-* [ ] Documentation in `docs/` or the primary `README.md` has been updated to reflect any API alterations.
+### Proposing changes
+
+Open an issue to discuss the change before writing code. This prevents wasted
+effort if the change conflicts with the project's design constraints.
 
 ---
 
-## 📜 License
+## Coding Guidelines
 
-By contributing to `stellar-safe-wallet`, you agree that your code and documentation contributions will be licensed under the repository's open-source **MIT License**.
+- Branch off `main` with a descriptive name (`fix/ttl-extension-bug`).
+- Do not add features that are not part of the product definition (no cap
+  setter, owner change, upgrade function, whitelist delay, new roles). List
+  ideas in the issue tracker instead.
+- Contract logic must include tests. Any new policy, limit, or error path needs
+  a corresponding test in `contracts/safe-wallet/src/test.rs`.
+- Auth checks must be tested WITHOUT `mock_all_auths` to prove that
+  unauthenticated calls fail. See existing auth tests in `test.rs` for the
+  pattern.
+
+---
+
+## Pull Request Checklist
+
+Before opening a PR:
+
+- [ ] `cargo fmt --all` produces no diff.
+- [ ] `cargo clippy --workspace --all-targets -- -D warnings` is clean.
+- [ ] `cargo test --workspace` passes.
+- [ ] `cargo build --release --target wasm32v1-none --manifest-path contracts/safe-wallet/Cargo.toml` succeeds.
+- [ ] A new dated entry has been appended to `_CHANGELOG.md` (see format below).
+- [ ] `docs/` updated if any public API, error code, or behavior changed.
+
+### Changelog entry format
+
+Append (never edit old entries) a new block at the **end** of `_CHANGELOG.md`:
+
+```
+## YYYY-MM-DD — <branch-name>
+
+### Changes
+
+**<file>** — what changed and why.
+
+**Why:** The concrete bug or inaccuracy this fixes.
+
+**BREAKING** (if callers or behavior change): describe what breaks.
+
+**Test results:**
+- Command run: `cargo test --workspace`
+- Result: N tests, 0 failures.
+```
+
+---
+
+## License
+
+By contributing you agree that your work will be licensed under the MIT License.
