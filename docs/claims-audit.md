@@ -71,3 +71,22 @@ Claims about authorization are cited only from tests that run **without**
 | 52 | TTL extended on every state-changing call | docs/architecture.md | `bump_ttl` called in all 7 state-changing fns | `test_events_emitted_without_panic` | VERIFIED |
 | 53 | Instance TTL not extended on idle wallet | README security model | lack of `bump_ttl` on read-only calls | `test_events_emitted_without_panic` | REWORDED |
 | 54 | Recovery key cannot spend | README, docs/policies.md, docs/architecture.md | `transfer` (owner auth only) | `test_freeze_by_recovery_key` | VERIFIED |
+
+---
+
+## Live Evidence (not test-backed)
+
+Claims in this table describe observable on-chain behaviour that cannot be
+proven by unit tests alone. The evidence column will be filled in after a
+documented testnet run. Until then, every claim here is "pending evidence".
+
+`bash scripts/check_claims.sh` does not validate this table (it only checks
+the VERIFIED rows in the table above).
+
+| # | Claim | Evidence | Date |
+|---|---|---|---|
+| L1 | `scripts/demo.sh` runs to completion on testnet with all assertions passing | Not yet run — record output in `docs/testnet-run.md` after running | — |
+| L2 | `expect_error` steps correctly detect the wrong-error case (script exits 1 if error name does not match) | Not yet run on testnet | — |
+| L3 | Dual-party signing via `--build-only` + `stellar tx sign` + `stellar tx send` works for `update_recovery_key` | Not yet run on testnet | — |
+| L4 | Native token SAC address resolved by `stellar contract id asset --asset native` matches the token accepted by `initialize` | Not yet run on testnet | — |
+| L5 | Wallet contract balance is readable via the native token SAC `balance` function | Not yet run on testnet | — |

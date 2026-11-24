@@ -196,13 +196,24 @@ lifecycle on Stellar testnet:
 
 1. Build the WASM
 2. Deploy the contract
-3. Initialise with a 50 XLM daily cap and a recovery key
-4. Add a whitelisted recipient
-5. Make a valid transfer (enforcing the daily cap)
-6. Attempt to exceed the daily cap (shows `DailyCapExceeded` error)
-7. Freeze the wallet with the recovery key (shows `WalletFrozen` error on transfer)
-8. Rotate the recovery key (requires both owner + old recovery key auth)
-9. Unfreeze with the new recovery key
+3. Resolve the native token's contract address
+4. Initialise with a 50 XLM daily cap and a recovery key
+5. Fund the wallet contract and verify the balance
+6. Add a whitelisted recipient
+7. Transfer 10 XLM (must succeed; asserts `spent_today == 10 XLM`)
+8. Attempt 45 XLM + 1 stroop (must fail with `DailyCapExceeded` — asserted)
+9. Freeze the wallet (recovery key only)
+10. Assert `is_frozen == true`
+11. Attempt transfer while frozen (must fail with `WalletFrozen` — asserted)
+12. Rotate the recovery key with real dual-party signing (owner builds tx, recovery key signs non-root auth, tx sent)
+13. Attempt unfreeze with the old key (must fail with `Unauthorized` — asserted)
+14. Unfreeze with the new recovery key
+15. Assert `is_frozen == false`
+16. Transfer 5 XLM (must succeed; cap has 40 XLM left from earlier in the window)
+
+Each step either calls `expect_ok` (fails the script on error) or `expect_error` (fails
+the script if the call succeeds, or if it fails with the wrong error). The script prints
+a summary table with transaction hashes.
 
 ```bash
 # Prerequisites: Stellar CLI v22+, Rust 1.88+ (rust-toolchain.toml pins it)
@@ -210,8 +221,9 @@ lifecycle on Stellar testnet:
 ```
 
 The script creates funded testnet keys, deploys a fresh wallet, and runs each
-step with annotated output. The script has not been run against a live testnet
-in this repository; a documented testnet run will be added in a future update.
+step with asserted outcomes. **This script has not yet been run against a live
+testnet in this repository.** Run it yourself and record the output in
+`docs/testnet-run.md` when done.
 
 ---
 
@@ -223,6 +235,20 @@ in this repository; a documented testnet run will be added in a future update.
 | [`docs/policies.md`](docs/policies.md) | Spending policies guide with CLI examples |
 | [`docs/deployment.md`](docs/deployment.md) | Deploy to testnet or mainnet |
 | [`scripts/demo.sh`](scripts/demo.sh) | End-to-end testnet demo script |
+
+---
+
+## 📦 Dependency notes
+
+The workspace pins `soroban-sdk = "=22.0.11"` and carries a
+`[patch.crates-io]` entry for `ed25519-dalek`. Without the patch,
+`soroban-env-host 22.1.3` pulls both `ed25519-dalek 3.0.0` (which needs
+`rand_core 0.9`) and `rand_chacha 0.3` (which needs `rand_core 0.6`). The
+resulting trait-bound conflict prevents the testutils target from compiling. The
+patch replaces `ed25519-dalek` with the `2.2.0` tag, which unifies the
+`rand_core` version at 0.6. The deployed WASM is unaffected: the guest target
+does not link `ed25519-dalek` at all, and the binary size is identical with and
+without the patch (11,730 bytes, same exported functions).
 
 ---
 
