@@ -1,73 +1,66 @@
 /**
- * Tests for rotate-recovery-key.mjs
+ * Tests for the multi-auth helper (lib.mjs and rotate-recovery-key.mjs).
  *
  * Run with: node --test test/
  *
  * What these tests prove:
- *   - Environment variable validation: the script refuses to run when
- *     OWNER_SECRET or RECOVERY_SECRET is absent or malformed.
- *   - Auth-entry selection logic: given a simulated set of auth entries
- *     (built with real SDK types, not hand-written stubs), the script
- *     correctly identifies which entries need signing by the recovery key,
- *     which need signing by the owner, and which are source-account entries
- *     that need no extra signing.
+ *   - Environment variable validation: validateSecrets refuses absent or
+ *     malformed OWNER_SECRET / RECOVERY_SECRET.
+ *   - Auth-entry classification: classifyEntries correctly identifies source,
+ *     owner, recovery, and unknown entries given real SDK XDR objects.
+ *   - Transaction assembly and envelope signing: assembleAndSign calls
+ *     assembleTransaction().build().sign() in the correct order, producing a
+ *     Transaction (not a TransactionBuilder) whose signatures array is non-empty.
+ *   - Polling with an injected RPC: SUCCESS, FAILED, NOT_FOUND→SUCCESS,
+ *     SDK parse error with raw fallback reporting SUCCESS, and timeout when
+ *     neither path resolves before the deadline.
  *
  * What these tests do NOT prove:
  *   - That the produced transaction is accepted by the network. Acceptance
  *     requires a live Soroban RPC node and funded accounts.
  *   - That the XDR produced by authorizeEntry is valid under the current
  *     network protocol version. Protocol compatibility requires a testnet run.
- *   - That the polling / fallback logic handles all real-world RPC errors.
- *     The fallback path is covered by a mock test, not a live call.
+ *   - That the fee computed by assembleAndSign matches what the network will
+ *     actually charge. The fee in these tests is a stub value.
+ *   - That the polling / fallback logic handles every real-world RPC error
+ *     variant. The fallback path is exercised with a fake throwing function,
+ *     not a live call.
  */
 
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
-import { Keypair, Address, xdr } from '@stellar/stellar-sdk';
+import {
+  Keypair,
+  Address,
+  xdr,
+  TransactionBuilder,
+  Networks,
+  Operation,
+  Account,
+  SorobanDataBuilder,
+} from '@stellar/stellar-sdk';
+// Import the real implementation — these tests exercise the shipped code.
+import {
+  validateSecrets,
+  classifyEntries,
+  assembleAndSign,
+  pollForResult,
+} from '../lib.mjs';
 
 // ---------------------------------------------------------------------------
-// Unit under test: re-implement the classifying logic from the script so we
-// can test it in isolation without spawning a subprocess.
-// (The script's main() cannot be imported cleanly because it calls process.exit
-// and reads process.env on startup. We extract the pure logic here.)
+// XDR helpers for building test fixtures
 // ---------------------------------------------------------------------------
 
-/**
- * Returns the credential type value for the source-account credential.
- */
-function sourceAccountCredValue() {
-  return xdr.SorobanCredentialsType.sorobanCredentialsSourceAccount().value;
-}
+const DUMMY_CONTRACT = 'CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM';
 
 /**
- * Classifies a list of SorobanAuthorizationEntry objects into:
- *   - 'source'   : source-account credentials (no extra signing needed)
- *   - 'owner'    : address credential matching the owner public key
- *   - 'recovery' : address credential matching the recovery public key
- *   - 'unknown'  : anything else (should not appear in a well-formed simulation)
- *
- * Uses real SDK xdr types, not strings.
- */
-function classifyEntries(entries, ownerPublicKey, recoveryPublicKey) {
-  return entries.map((entry) => {
-    const credType = entry.credentials().switch().value;
-    if (credType === sourceAccountCredValue()) {
-      return 'source';
-    }
-    const addr = Address.fromScAddress(entry.credentials().address().address()).toString();
-    if (addr === ownerPublicKey) return 'owner';
-    if (addr === recoveryPublicKey) return 'recovery';
-    return 'unknown';
-  });
-}
-
-/**
- * Build a minimal SorobanAuthorizationEntry with address credentials for
- * a given public key. Uses the real SDK xdr types so the classification
- * logic runs against actual XDR objects, not stubs.
+ * Build a minimal SorobanAuthorizationEntry with address credentials for a
+ * given public key. Uses real SDK xdr types so the classification logic runs
+ * against actual XDR objects, not stubs.
  */
 function makeAddressAuthEntry(publicKey) {
   const address = new Address(publicKey);
+  // xdr.Int64 — construct from a Buffer of 8 zero bytes (nonce = 0)
   const nonce = xdr.Int64.fromXDR(Buffer.alloc(8));
 
   return new xdr.SorobanAuthorizationEntry({
@@ -83,9 +76,7 @@ function makeAddressAuthEntry(publicKey) {
       function:
         xdr.SorobanAuthorizedFunction.sorobanAuthorizedFunctionTypeContractFn(
           new xdr.InvokeContractArgs({
-            contractAddress: new Address(
-              'CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM',
-            ).toScAddress(),
+            contractAddress: new Address(DUMMY_CONTRACT).toScAddress(),
             functionName: 'update_recovery_key',
             args: [],
           }),
@@ -105,9 +96,7 @@ function makeSourceAccountAuthEntry() {
       function:
         xdr.SorobanAuthorizedFunction.sorobanAuthorizedFunctionTypeContractFn(
           new xdr.InvokeContractArgs({
-            contractAddress: new Address(
-              'CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM',
-            ).toScAddress(),
+            contractAddress: new Address(DUMMY_CONTRACT).toScAddress(),
             functionName: 'update_recovery_key',
             args: [],
           }),
@@ -117,45 +106,60 @@ function makeSourceAccountAuthEntry() {
   });
 }
 
-// ---------------------------------------------------------------------------
-// Helpers for environment variable validation testing
-// ---------------------------------------------------------------------------
+/**
+ * Build a minimal Transaction with an invokeContractFunction operation and
+ * fake auth entries attached. Used to test assembleAndSign without a network.
+ *
+ * @param {xdr.SorobanAuthorizationEntry[]} auth
+ * @param {string} sourcePublicKey
+ * @returns {import('@stellar/stellar-base').Transaction}
+ */
+function buildTxWithAuth(auth, sourcePublicKey) {
+  const account = new Account(sourcePublicKey, '100');
+  return new TransactionBuilder(account, {
+    fee: '1000000',
+    networkPassphrase: Networks.TESTNET,
+  })
+    .addOperation(
+      Operation.invokeContractFunction({
+        contract: DUMMY_CONTRACT,
+        function: 'update_recovery_key',
+        args: [new Address(Keypair.random().publicKey()).toScVal()],
+        auth,
+      }),
+    )
+    .setTimeout(300)
+    .build();
+}
 
 /**
- * Validates secrets from an env-variable map.
- * Returns { ownerKp, recoveryKp } or throws with a descriptive message.
- * This mirrors the loadSecrets() function in the main script.
+ * Build a fake SimulateTransactionSuccessResponse that assembleTransaction
+ * accepts. The auth field is omitted so assembleTransaction preserves the
+ * existing auth entries from the transaction.
+ *
+ * assembleTransaction reads: sim.transactionData (a SorobanDataBuilder),
+ * sim.minResourceFee, and sim._parsed. It checks isSimulationSuccess(sim)
+ * which requires 'transactionData' in sim.
+ *
+ * @returns {object} fake SimulateTransactionSuccessResponse
  */
-function validateSecrets(env) {
-  const ownerSecret = env['OWNER_SECRET'];
-  const recoverySecret = env['RECOVERY_SECRET'];
-
-  if (!ownerSecret) {
-    throw new Error('OWNER_SECRET environment variable is not set');
-  }
-  if (!recoverySecret) {
-    throw new Error('RECOVERY_SECRET environment variable is not set');
-  }
-
-  let ownerKp;
-  try {
-    ownerKp = Keypair.fromSecret(ownerSecret);
-  } catch {
-    throw new Error('OWNER_SECRET is not a valid Stellar secret key');
-  }
-
-  let recoveryKp;
-  try {
-    recoveryKp = Keypair.fromSecret(recoverySecret);
-  } catch {
-    throw new Error('RECOVERY_SECRET is not a valid Stellar secret key');
-  }
-
-  return { ownerKp, recoveryKp };
+function makeFakeSim() {
+  return {
+    id: 'fake',
+    latestLedger: 1000,
+    events: [],
+    _parsed: true,
+    transactionData: new SorobanDataBuilder(),
+    minResourceFee: '100',
+    result: {
+      auth: [],
+      retval: xdr.ScVal.scvVoid(),
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
-// Tests
+// Tests: validateSecrets
 // ---------------------------------------------------------------------------
 
 describe('validateSecrets', () => {
@@ -211,6 +215,10 @@ describe('validateSecrets', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Tests: classifyEntries
+// ---------------------------------------------------------------------------
+
 describe('classifyEntries', () => {
   let ownerKp, recoveryKp, thirdKp;
 
@@ -261,7 +269,6 @@ describe('classifyEntries', () => {
 
   it('uses real SDK XDR types (round-trips through toXDR/fromXDR)', () => {
     const entry = makeAddressAuthEntry(recoveryKp.publicKey());
-    // Verify the entry survives an XDR round-trip (the kind the script does)
     const roundTripped = xdr.SorobanAuthorizationEntry.fromXDR(entry.toXDR());
     const result = classifyEntries(
       [roundTripped],
@@ -277,8 +284,6 @@ describe('classifyEntries — selection for update_recovery_key', () => {
     const ownerKp = Keypair.random();
     const recoveryKp = Keypair.random();
 
-    // The typical simulation result for update_recovery_key contains one
-    // address credential entry for the recovery key (the owner is source).
     const entries = [makeAddressAuthEntry(recoveryKp.publicKey())];
     const classifications = classifyEntries(
       entries,
@@ -291,5 +296,181 @@ describe('classifyEntries — selection for update_recovery_key', () => {
 
     const noSign = entries.filter((_, i) => classifications[i] === 'source');
     assert.equal(noSign.length, 0, 'no source-account entries in this scenario');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests: assembleAndSign
+//
+// These tests prove that assembleAndSign produces a Transaction (not a
+// TransactionBuilder) whose signatures array contains the owner's signature.
+// The key pre-condition for the original FATAL bug was that
+// assembleTransaction returns a TransactionBuilder, which does not have .sign;
+// these tests would fail with "builtTx.sign is not a function" on the old code.
+// ---------------------------------------------------------------------------
+
+describe('assembleAndSign', () => {
+  it('returns a Transaction (not a TransactionBuilder)', () => {
+    const ownerKp = Keypair.random();
+    const recoveryKp = Keypair.random();
+    const auth = [makeAddressAuthEntry(recoveryKp.publicKey())];
+    const tx = buildTxWithAuth(auth, ownerKp.publicKey());
+    const sim = makeFakeSim();
+
+    const result = assembleAndSign(tx, sim, ownerKp);
+
+    // A Transaction has .sign(), .hash(), .toEnvelope(); a TransactionBuilder has .build()
+    assert.equal(typeof result.sign, 'function', 'result must be a Transaction with .sign()');
+    assert.equal(typeof result.build, 'undefined', 'result must not be a TransactionBuilder');
+  });
+
+  it('signs the envelope with the owner key (signatures array is non-empty)', () => {
+    const ownerKp = Keypair.random();
+    const auth = [makeSourceAccountAuthEntry()];
+    const tx = buildTxWithAuth(auth, ownerKp.publicKey());
+    const sim = makeFakeSim();
+
+    const result = assembleAndSign(tx, sim, ownerKp);
+
+    assert.ok(result.signatures.length > 0, 'envelope should have at least one signature');
+  });
+
+  it('signature verifies against the owner public key', () => {
+    const ownerKp = Keypair.random();
+    const auth = [makeSourceAccountAuthEntry()];
+    const tx = buildTxWithAuth(auth, ownerKp.publicKey());
+    const sim = makeFakeSim();
+
+    const result = assembleAndSign(tx, sim, ownerKp);
+
+    // Verify that the transaction hash is what was signed
+    const txHash = result.hash();
+    const sig = result.signatures[0];
+    // sig is a DecoratedSignature; .signature() is the raw Buffer
+    assert.ok(
+      ownerKp.verify(txHash, sig.signature()),
+      'signature must verify against the owner public key',
+    );
+  });
+
+  it('preserves auth entries from the operation', () => {
+    const ownerKp = Keypair.random();
+    const recoveryKp = Keypair.random();
+    const auth = [makeAddressAuthEntry(recoveryKp.publicKey())];
+    const tx = buildTxWithAuth(auth, ownerKp.publicKey());
+    const sim = makeFakeSim();
+
+    const result = assembleAndSign(tx, sim, ownerKp);
+
+    // The operation in the assembled transaction should still have the auth entry
+    const op = result.operations[0];
+    assert.ok(Array.isArray(op.auth), 'operation should have auth array');
+    assert.equal(op.auth.length, 1, 'auth entry should be preserved');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests: pollForResult with injected RPC
+// ---------------------------------------------------------------------------
+
+describe('pollForResult', () => {
+  /** Build a fake RPC that returns statuses in sequence. */
+  function makeFakeRpc(statuses) {
+    let i = 0;
+    return {
+      getTransaction: async (_hash) => {
+        const s = statuses[i < statuses.length ? i++ : statuses.length - 1];
+        if (s instanceof Error) throw s;
+        return { status: s };
+      },
+    };
+  }
+
+  const FAST_OPTS = { pollIntervalMs: 0, pollDeadlineMs: 1_000, logFn: () => {} };
+
+  it('resolves immediately on SUCCESS', async () => {
+    const rpc = makeFakeRpc(['SUCCESS']);
+    const result = await pollForResult(rpc, 'fakehash', undefined, undefined, FAST_OPTS);
+    assert.equal(result.status, 'SUCCESS');
+  });
+
+  it('resolves after NOT_FOUND then SUCCESS', async () => {
+    const rpc = makeFakeRpc(['NOT_FOUND', 'NOT_FOUND', 'SUCCESS']);
+    const result = await pollForResult(rpc, 'fakehash', undefined, undefined, FAST_OPTS);
+    assert.equal(result.status, 'SUCCESS');
+  });
+
+  it('resolves after PENDING then SUCCESS', async () => {
+    const rpc = makeFakeRpc(['PENDING', 'SUCCESS']);
+    const result = await pollForResult(rpc, 'fakehash', undefined, undefined, FAST_OPTS);
+    assert.equal(result.status, 'SUCCESS');
+  });
+
+  it('throws on FAILED status', async () => {
+    const rpc = makeFakeRpc(['FAILED']);
+    await assert.rejects(
+      () => pollForResult(rpc, 'fakehash', undefined, undefined, FAST_OPTS),
+      /Transaction FAILED/,
+    );
+  });
+
+  it('SDK parse error with raw fallback reporting SUCCESS', async () => {
+    // The main SDK getTransaction throws a parse error; the raw fallback returns SUCCESS.
+    const rpc = {
+      getTransaction: async () => {
+        throw new Error('Bad union switch: 4');
+      },
+    };
+    const rawFallback = async (_hash) => ({ status: 'SUCCESS' });
+
+    const result = await pollForResult(rpc, 'fakehash', rawFallback, undefined, FAST_OPTS);
+    assert.equal(result.status, 'SUCCESS');
+  });
+
+  it('SDK parse error with raw fallback reporting FAILED throws', async () => {
+    const rpc = {
+      getTransaction: async () => {
+        throw new Error('Bad union switch: 4');
+      },
+    };
+    const rawFallback = async (_hash) => ({ status: 'FAILED' });
+
+    await assert.rejects(
+      () => pollForResult(rpc, 'fakehash', rawFallback, undefined, FAST_OPTS),
+      /Transaction FAILED/,
+    );
+  });
+
+  it('times out when both SDK and raw fallback keep failing, and error message contains last error', async () => {
+    const rpc = {
+      getTransaction: async () => {
+        throw new Error('parse error from SDK');
+      },
+    };
+    const rawFallback = async (_hash) => {
+      throw new Error('raw fallback network error');
+    };
+
+    // Very short deadline so the test doesn't take long
+    const opts = { pollIntervalMs: 0, pollDeadlineMs: 50, logFn: () => {} };
+
+    await assert.rejects(
+      () => pollForResult(rpc, 'fakehash', rawFallback, undefined, opts),
+      (err) => {
+        assert.match(err.message, /Timed out/);
+        assert.match(err.message, /raw fallback network error/);
+        return true;
+      },
+    );
+  });
+
+  it('times out when status stays NOT_FOUND until deadline, and error message mentions timeout', async () => {
+    const rpc = makeFakeRpc(['NOT_FOUND']);
+    const opts = { pollIntervalMs: 0, pollDeadlineMs: 50, logFn: () => {} };
+
+    await assert.rejects(
+      () => pollForResult(rpc, 'fakehash', undefined, undefined, opts),
+      /Timed out/,
+    );
   });
 });

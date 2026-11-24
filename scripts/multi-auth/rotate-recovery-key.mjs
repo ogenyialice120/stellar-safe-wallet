@@ -35,18 +35,23 @@
  */
 
 import {
-  Keypair,
   TransactionBuilder,
   Networks,
   Operation,
   Address,
-  nativeToScVal,
-  xdr,
-  authorizeEntry,
 } from '@stellar/stellar-sdk';
 import rpcPkg from '@stellar/stellar-sdk/rpc';
 
-const { Server, assembleTransaction } = rpcPkg;
+const { Server } = rpcPkg;
+
+import {
+  validateSecrets,
+  classifyEntries,
+  signAuthEntries,
+  assembleAndSign,
+  pollForResult,
+  makeRawFallback,
+} from './lib.mjs';
 
 // ---------------------------------------------------------------------------
 // Argument / environment parsing
@@ -79,136 +84,6 @@ function log(msg) {
 }
 
 // ---------------------------------------------------------------------------
-// Secret handling
-// ---------------------------------------------------------------------------
-
-function loadSecrets() {
-  const ownerSecret = process.env['OWNER_SECRET'];
-  const recoverySecret = process.env['RECOVERY_SECRET'];
-
-  if (!ownerSecret) {
-    fatal('OWNER_SECRET environment variable is not set. Refusing to run without it.');
-  }
-  if (!recoverySecret) {
-    fatal('RECOVERY_SECRET environment variable is not set. Refusing to run without it.');
-  }
-
-  let ownerKp, recoveryKp;
-  try {
-    ownerKp = Keypair.fromSecret(ownerSecret);
-  } catch {
-    fatal('OWNER_SECRET is not a valid Stellar secret key.');
-  }
-  try {
-    recoveryKp = Keypair.fromSecret(recoverySecret);
-  } catch {
-    fatal('RECOVERY_SECRET is not a valid Stellar secret key.');
-  }
-
-  return { ownerKp, recoveryKp };
-}
-
-// ---------------------------------------------------------------------------
-// Transaction polling — with fallback for SDK parse errors on new XDR
-// ---------------------------------------------------------------------------
-
-const POLL_INTERVAL_MS = 3000;
-const POLL_DEADLINE_MS = 60_000;
-
-async function pollForResult(server, txHash) {
-  const deadline = Date.now() + POLL_DEADLINE_MS;
-  while (Date.now() < deadline) {
-    let status = null;
-    let raw = null;
-
-    try {
-      const result = await server.getTransaction(txHash);
-      status = result.status;
-      raw = result;
-    } catch (sdkErr) {
-      // The SDK can throw on newer protocol metadata it cannot parse
-      // (e.g. "Bad union switch: 4"). Fall back to a raw JSON-RPC call
-      // to read the status field only.
-      const errText = sdkErr && sdkErr.message ? sdkErr.message : String(sdkErr);
-      log(`SDK parse error (non-fatal, reading raw status): ${errText}`);
-
-      try {
-        raw = await rawGetTransactionStatus(server, txHash);
-        status = raw.status;
-      } catch (rawErr) {
-        const rawText = rawErr && rawErr.message ? rawErr.message : String(rawErr);
-        log(`Raw RPC fallback also failed: ${rawText}`);
-        // Keep waiting — transient network issue
-        await sleep(POLL_INTERVAL_MS);
-        continue;
-      }
-    }
-
-    if (status === 'PENDING' || status === 'NOT_FOUND') {
-      await sleep(POLL_INTERVAL_MS);
-      continue;
-    }
-
-    if (status === 'SUCCESS') {
-      return { status, raw };
-    }
-
-    if (status === 'FAILED') {
-      const detail = raw && raw.resultXdr ? ` resultXdr=${raw.resultXdr}` : '';
-      fatal(`Transaction FAILED.${detail}`);
-    }
-
-    // Unknown status — log and keep waiting until deadline
-    log(`Unexpected transaction status: ${String(status)} — waiting`);
-    await sleep(POLL_INTERVAL_MS);
-  }
-
-  fatal(`Timed out waiting for transaction ${txHash} after ${POLL_DEADLINE_MS / 1000}s`);
-}
-
-async function rawGetTransactionStatus(server, txHash) {
-  // Access the underlying HTTP client via the server's RPC URL.
-  // The Server stores its rpcUrl — reach it through the internal _serverUrl.
-  const rpcUrl = server._serverUrl
-    ? server._serverUrl.href
-    : server.serverURL
-      ? server.serverURL.href
-      : null;
-
-  if (!rpcUrl) {
-    throw new Error('Cannot determine RPC URL from server instance for raw fallback');
-  }
-
-  const body = JSON.stringify({
-    jsonrpc: '2.0',
-    id: 1,
-    method: 'getTransaction',
-    params: { hash: txHash },
-  });
-
-  const resp = await fetch(rpcUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body,
-  });
-
-  if (!resp.ok) {
-    throw new Error(`HTTP ${resp.status} from RPC`);
-  }
-
-  const json = await resp.json();
-  if (json.error) {
-    throw new Error(`RPC error: ${json.error.message || JSON.stringify(json.error)}`);
-  }
-
-  return json.result;
-}
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
@@ -218,19 +93,25 @@ async function main() {
 
   const contractId = opts['contract'] || process.env['CONTRACT_ID'];
   const newRecoveryAddr = opts['new-recovery'] || process.env['NEW_RECOVERY_ADDR'];
-  const rpcUrl = opts['rpc-url'] || process.env['RPC_URL'] || 'https://soroban-testnet.stellar.org';
+  const rpcUrl =
+    opts['rpc-url'] || process.env['RPC_URL'] || 'https://soroban-testnet.stellar.org';
   const passphrase =
     opts['passphrase'] || process.env['PASSPHRASE'] || Networks.TESTNET;
 
   if (!contractId) fatal('--contract (or CONTRACT_ID env var) is required');
   if (!newRecoveryAddr) fatal('--new-recovery (or NEW_RECOVERY_ADDR env var) is required');
 
-  const { ownerKp, recoveryKp } = loadSecrets();
+  let ownerKp, recoveryKp;
+  try {
+    ({ ownerKp, recoveryKp } = validateSecrets(process.env));
+  } catch (err) {
+    fatal(err.message);
+  }
 
-  log(`Contract:     ${contractId}`);
-  log(`New recovery: ${newRecoveryAddr}`);
-  log(`RPC URL:      ${rpcUrl}`);
-  log(`Owner:        ${ownerKp.publicKey()}`);
+  log(`Contract:         ${contractId}`);
+  log(`New recovery:     ${newRecoveryAddr}`);
+  log(`RPC URL:          ${rpcUrl}`);
+  log(`Owner:            ${ownerKp.publicKey()}`);
   log(`Current recovery: ${recoveryKp.publicKey()}`);
 
   // ── 2. Set up RPC server ─────────────────────────────────────────────────
@@ -240,106 +121,93 @@ async function main() {
   log('Loading owner account from RPC...');
   const ownerAccount = await server.getAccount(ownerKp.publicKey());
 
-  log('Getting latest ledger...');
   const ledgerInfo = await server.getLatestLedger();
   const latestLedger = ledgerInfo.sequence;
   const validUntilLedger = latestLedger + 60;
   log(`Latest ledger: ${latestLedger}, auth valid until: ${validUntilLedger}`);
 
-  // ── 4. Build the transaction ─────────────────────────────────────────────
-  // update_recovery_key(env: Env, new_key: Address) -> Result<(), WalletError>
-  // The function takes exactly one argument: new_key (an Address).
+  // ── 4. Build the unsigned transaction ────────────────────────────────────
   const newKeyScVal = new Address(newRecoveryAddr).toScVal();
 
-  const contract = new Address(contractId);
-
-  const invokeOp = Operation.invokeContractFunction({
-    contract: contractId,
-    function: 'update_recovery_key',
-    args: [newKeyScVal],
-  });
-
   const tx = new TransactionBuilder(ownerAccount, {
-    fee: '1000000', // 0.1 XLM max fee; actual fee is set after simulation
+    fee: '1000000', // 0.1 XLM max fee; actual fee is set after re-simulation
     networkPassphrase: passphrase,
   })
-    .addOperation(invokeOp)
+    .addOperation(
+      Operation.invokeContractFunction({
+        contract: contractId,
+        function: 'update_recovery_key',
+        args: [newKeyScVal],
+      }),
+    )
     .setTimeout(300)
     .build();
 
   // ── 5. First simulation (recording mode) ─────────────────────────────────
   log('Simulating transaction (recording auth entries)...');
-  const sim = await server.simulateTransaction(tx);
+  const sim1 = await server.simulateTransaction(tx);
 
-  if (sim.error) {
-    fatal(`Simulation failed: ${sim.error}`);
+  if (sim1.error) {
+    fatal(`Simulation failed: ${sim1.error}`);
+  }
+  if (!sim1.result) {
+    fatal('Simulation returned no result object');
   }
 
-  if (!sim.result) {
-    fatal('Simulation returned no result');
-  }
-
-  // Check for auth entries in the simulation result
-  const authEntries = sim.result.auth || [];
+  const authEntries = sim1.result.auth ?? [];
   log(`Simulation returned ${authEntries.length} auth entry/entries`);
 
   if (authEntries.length === 0) {
-    fatal('No auth entries returned from simulation — expected at least one for the recovery key');
+    fatal(
+      'No auth entries returned from simulation — expected at least one for the recovery key',
+    );
   }
 
-  // ── 6. Sign the recovery key's auth entry ────────────────────────────────
-  // The owner's auth is covered by the transaction source (root auth).
-  // We must sign entries whose credential address matches the current recovery key.
-  const signedEntries = await Promise.all(
-    authEntries.map(async (entry) => {
-      // Skip source-account credentials (the owner's root auth is automatic)
-      const credType = entry.credentials().switch().value;
-      const sourceAccountCredType =
-        xdr.SorobanCredentialsType.sorobanCredentialsSourceAccount().value;
-
-      if (credType === sourceAccountCredType) {
-        log('  Auth entry: source-account credential (owner root auth — no extra signing needed)');
-        return entry;
-      }
-
-      // For address credentials, check if this entry is for the recovery key
-      const entryAddr = Address.fromScAddress(
-        entry.credentials().address().address(),
-      ).toString();
-
-      log(`  Auth entry: address credential for ${entryAddr}`);
-
-      if (entryAddr === recoveryKp.publicKey()) {
-        log('  → Signing this entry with the recovery key');
-        return authorizeEntry(entry, recoveryKp, validUntilLedger, passphrase);
-      }
-
-      if (entryAddr === ownerKp.publicKey()) {
-        // Owner's non-root auth entry — sign with owner key
-        log('  → Signing this entry with the owner key');
-        return authorizeEntry(entry, ownerKp, validUntilLedger, passphrase);
-      }
-
-      fatal(
-        `Unexpected auth entry for address ${entryAddr} — ` +
-          `expected owner (${ownerKp.publicKey()}) or recovery (${recoveryKp.publicKey()})`,
-      );
-    }),
+  // ── 6. Classify and sign auth entries ────────────────────────────────────
+  const classifications = classifyEntries(
+    authEntries,
+    ownerKp.publicKey(),
+    recoveryKp.publicKey(),
   );
 
-  // ── 7. Assemble with signed auth entries ─────────────────────────────────
-  // assembleTransaction merges simulation resource data and sets the fee.
-  // We pass the signed auth entries via the transaction operation.
-  log('Assembling transaction with signed auth entries...');
+  for (let i = 0; i < authEntries.length; i++) {
+    const kind = classifications[i];
+    if (kind === 'source') {
+      log('  Auth entry: source-account credential (owner root auth — no extra signing needed)');
+    } else if (kind === 'recovery') {
+      log(`  Auth entry: address credential for ${recoveryKp.publicKey()}`);
+      log('  → Signing this entry with the recovery key');
+    } else if (kind === 'owner') {
+      log(`  Auth entry: address credential for ${ownerKp.publicKey()} (non-root)`);
+      log('  → Signing this entry with the owner key');
+    } else {
+      const addr = Address.fromScAddress(
+        authEntries[i].credentials().address().address(),
+      ).toString();
+      fatal(
+        `Unexpected auth entry for address ${addr} — ` +
+          `expected owner (${ownerKp.publicKey()}) or recovery (${recoveryKp.publicKey()})`,
+      );
+    }
+  }
 
-  // Clone the transaction and attach signed auth entries to its operation
-  const txWithAuth = new TransactionBuilder(
-    await server.getAccount(ownerKp.publicKey()),
-    {
-      fee: '1000000',
-      networkPassphrase: passphrase,
-    },
-  )
+  const signedEntries = await signAuthEntries(
+    authEntries,
+    classifications,
+    ownerKp,
+    recoveryKp,
+    validUntilLedger,
+    passphrase,
+  );
+
+  // ── 7. Rebuild transaction with signed auth entries ───────────────────────
+  // Re-fetch the account to get a fresh sequence number for the second build.
+  const ownerAccount2 = await server.getAccount(ownerKp.publicKey());
+
+  const txWithAuth = new TransactionBuilder(ownerAccount2, {
+    fee: '1000000',
+    networkPassphrase: passphrase,
+  })
     .addOperation(
       Operation.invokeContractFunction({
         contract: contractId,
@@ -351,14 +219,31 @@ async function main() {
     .setTimeout(300)
     .build();
 
-  // Let assembleTransaction set resources and fee from the simulation result
-  const assembled = assembleTransaction(txWithAuth, sim);
+  // ── 8. Second simulation (enforcing mode) ────────────────────────────────
+  // The signed auth entries are attached to the operation. assembleTransaction
+  // preserves existing auth entries and fills in the correct footprint and fee.
+  // Running a second simulation with the signed entries yields the real fee
+  // and footprint for the final transaction.
+  log('Re-simulating with signed auth entries (enforcing)...');
+  const sim2 = await server.simulateTransaction(txWithAuth);
 
-  // ── 8. Sign the transaction envelope with the owner key ──────────────────
-  assembled.sign(ownerKp);
+  if (sim2.error) {
+    fatal(`Re-simulation failed: ${sim2.error}`);
+  }
+
+  // ── 9. Assemble, build, and sign the envelope ────────────────────────────
+  // assembleTransaction() returns TransactionBuilder — must call .build()
+  // before calling .sign() (which is on Transaction, not TransactionBuilder).
+  log('Assembling transaction with signed auth entries...');
+  let assembled;
+  try {
+    assembled = assembleAndSign(txWithAuth, sim2, ownerKp);
+  } catch (err) {
+    fatal(`Assembly failed: ${err.message}`);
+  }
   log('Transaction envelope signed by owner');
 
-  // ── 9. Submit ─────────────────────────────────────────────────────────────
+  // ── 10. Submit ────────────────────────────────────────────────────────────
   log('Sending transaction...');
   let sendResult;
   try {
@@ -370,18 +255,28 @@ async function main() {
 
   if (sendResult.status === 'ERROR') {
     fatal(
-      `Transaction rejected immediately: ${sendResult.errorResult ? sendResult.errorResult.toXDR('base64') : 'unknown error'}`,
+      `Transaction rejected immediately: ${
+        sendResult.errorResult ? sendResult.errorResult.toXDR('base64') : 'unknown error'
+      }`,
     );
   }
 
   const txHash = sendResult.hash;
   log(`Submitted. Hash: ${txHash}. Status: ${sendResult.status}`);
 
-  // ── 10. Poll for final result ─────────────────────────────────────────────
+  // ── 11. Poll for final result ─────────────────────────────────────────────
   log('Polling for transaction result...');
-  await pollForResult(server, txHash);
+  // server.serverURL is a public URI object (not a private field).
+  // .toString() gives the full URL string needed for the raw fallback.
+  const rawFallback = makeRawFallback(server.serverURL.toString());
 
-  // ── 11. Emit the machine-readable success line to stdout ──────────────────
+  try {
+    await pollForResult(server, txHash, rawFallback, undefined, { logFn: log });
+  } catch (err) {
+    fatal(err.message);
+  }
+
+  // ── 12. Emit the machine-readable success line to stdout ──────────────────
   process.stdout.write(`TXHASH=${txHash}\n`);
 }
 
