@@ -79,9 +79,11 @@ Pass the resulting contract ID (a `C…` address) as `--token`.
 
 `scripts/demo.sh` deploys a fresh wallet, funds it, and runs the full policy
 lifecycle. Each step is asserted: unexpected successes and unexpected errors
-both fail the script immediately. The script has **not yet been run against a
-live testnet** in this repository. When you run it, record the output in
-`docs/testnet-run.md`.
+both fail the script immediately. All 17 steps were confirmed on Stellar
+testnet on 2026-11-24 (contract
+`CDKAXWO4DF5V3PLW4NGMUTSG4PH66G6VULMX2F4JIHX2IFRLFPI7WMAD`). Full output
+and all transaction hashes are in
+[`docs/testnet-run.md`](testnet-run.md).
 
 ```bash
 ./scripts/demo.sh

@@ -1,15 +1,10 @@
 #!/usr/bin/env bash
 # demo.sh — End-to-end testnet demo for the SafeWallet policy contract.
 #
-# This script has NOT been run against a live testnet in this repository.
-# Run it yourself with:
-#   ./scripts/demo.sh
-# and record the output in docs/testnet-run.md when done.
-#
-# Steps 0 to 12 were run successfully on testnet on 2026-11-24 (contract
-# CASPY7BHTYBE77EELEPZRFMJJV3WN4B7SA4HWRL6YDOCDP72JCYH5VBX). Steps 13
-# to 17 have NOT yet been confirmed on testnet with this script. See
-# docs/claims-audit.md "Live evidence" table.
+# All 17 steps were run successfully on testnet on 2026-11-24 (contract
+# CDKAXWO4DF5V3PLW4NGMUTSG4PH66G6VULMX2F4JIHX2IFRLFPI7WMAD, commit 9b2bb03).
+# Full output, all transaction hashes, and the NOT-covered list are in
+# docs/testnet-run.md.
 #
 # The script exercises the full policy lifecycle on Stellar Testnet:
 #
