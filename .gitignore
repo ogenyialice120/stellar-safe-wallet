@@ -1,6 +1,7 @@
 /target
-Cargo.lock
 .DS_Store
 *.wasm
 node_modules/
 .env
+test_snapshots/
+.kiro/
