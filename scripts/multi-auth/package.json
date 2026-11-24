@@ -1,0 +1,16 @@
+{
+  "name": "safe-wallet-multi-auth",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Helper for signing Soroban multi-party auth entries in the SafeWallet demo",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "test": "node --test test/*.mjs"
+  },
+  "dependencies": {
+    "@stellar/stellar-sdk": "13.3.0"
+  }
+}

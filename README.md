@@ -216,14 +216,23 @@ the script if the call succeeds, or if it fails with the wrong error). The scrip
 a summary table with transaction hashes.
 
 ```bash
-# Prerequisites: Stellar CLI v22+, Rust 1.88+ (rust-toolchain.toml pins it)
+# Prerequisites: Stellar CLI v22+, Rust 1.88+ (rust-toolchain.toml pins it),
+#                Node.js >= 22.12.0 (required for step 13 multi-party signing)
 ./scripts/demo.sh
 ```
 
 The script creates funded testnet keys, deploys a fresh wallet, and runs each
-step with asserted outcomes. **This script has not yet been run against a live
-testnet in this repository.** Run it yourself and record the output in
+step with asserted outcomes. Steps 0 to 12 were confirmed on testnet on
+2026-11-24. **Steps 13 to 17 have not yet been confirmed on testnet** with
+this version of the script. Run it yourself and record the output in
 `docs/testnet-run.md` when done.
+
+Step 13 (recovery-key rotation) uses a Node.js helper
+(`scripts/multi-auth/rotate-recovery-key.mjs`) because `stellar tx sign` signs
+the transaction envelope, not the Soroban authorization entries that non-source
+addresses require. `update_recovery_key` calls `require_auth()` on both the
+owner and the current recovery key; the recovery key's auth entry must be signed
+with `authorizeEntry()` from `@stellar/stellar-sdk`.
 
 ---
 
@@ -249,6 +258,13 @@ patch replaces `ed25519-dalek` with the `2.2.0` tag, which unifies the
 `rand_core` version at 0.6. The deployed WASM is unaffected: the guest target
 does not link `ed25519-dalek` at all, and the binary size is identical with and
 without the patch (11,730 bytes, same exported functions).
+
+The demo's step 13 (recovery-key rotation) requires **Node.js >= 22.12.0**. The
+`scripts/multi-auth/` directory contains a small helper
+(`rotate-recovery-key.mjs`) that uses `@stellar/stellar-sdk` v13.3.0 to sign
+the recovery key's Soroban authorization entry with `authorizeEntry()`. This is
+necessary because `stellar tx sign` (the Stellar CLI) signs the transaction
+envelope, not the per-address Soroban auth entries that non-source signers need.
 
 ---
 

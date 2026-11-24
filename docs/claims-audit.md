@@ -85,8 +85,8 @@ the VERIFIED rows in the table above).
 
 | # | Claim | Evidence | Date |
 |---|---|---|---|
-| L1 | `scripts/demo.sh` runs to completion on testnet with all assertions passing | Not yet run — record output in `docs/testnet-run.md` after running | — |
-| L2 | `expect_error` steps correctly detect the wrong-error case (script exits 1 if error name does not match) | Not yet run on testnet | — |
-| L3 | Dual-party signing via `--build-only` + `stellar tx sign` + `stellar tx send` works for `update_recovery_key` | Not yet run on testnet | — |
-| L4 | Native token SAC address resolved by `stellar contract id asset --asset native` matches the token accepted by `initialize` | Not yet run on testnet | — |
-| L5 | Wallet contract balance is readable via the native token SAC `balance` function | Not yet run on testnet | — |
+| L1 | `scripts/demo.sh` steps 0–12 run to completion on testnet with all assertions passing | Steps 0–12 observed in a live run. Contract `CASPY7BHTYBE77EELEPZRFMJJV3WN4B7SA4HWRL6YDOCDP72JCYH5VBX`, native token SAC `CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC`. Steps 13–17 were NOT confirmed in that run because step 13 failed with TxMalformed (see L2). | 2026-11-24 |
+| L2 | Step 13 (`--build-only` / `stellar tx sign` approach) produced TxMalformed | Observed failure: tx hash `c599c663271d026c8bfa9560af9dd7c75ba2ca0825e09a5338058a29e5558fea` was rejected with `TxMalformed`. Root cause: `stellar tx sign` signs the envelope, not the Soroban auth entry for the recovery key. | 2026-11-24 |
+| L3 | Revised step 13 (`rotate-recovery-key.mjs` using `authorizeEntry`) correctly rotates the key on-chain | Not yet run on testnet — pending a full run with the new script | — |
+| L4 | Steps 14–17 execute correctly after key rotation (old key rejected, new key unfreezes, final transfer succeeds) | Not yet run on testnet | — |
+| L5 | Native token SAC address resolved by `stellar contract id asset --asset native` matches the token accepted by `initialize` | Confirmed in the 2026-11-24 run (token SAC `CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC` used successfully for initialize and fund steps) | 2026-11-24 |

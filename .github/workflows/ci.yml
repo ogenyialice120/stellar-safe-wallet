@@ -63,3 +63,16 @@ jobs:
 
       - name: Shellcheck scripts
         run: shellcheck scripts/*.sh
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: scripts/multi-auth/package-lock.json
+
+      - name: Install multi-auth Node dependencies
+        run: npm ci --prefix scripts/multi-auth
+
+      - name: Run multi-auth tests
+        run: npm test --prefix scripts/multi-auth

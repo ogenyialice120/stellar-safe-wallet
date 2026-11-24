@@ -653,3 +653,179 @@ rewritten script will be run by the submitter; output to be recorded in
   non-zero exit code for already-funded accounts; if friendbot changes behaviour,
   the warning message logic may need updating.
 
+
+---
+
+## 2026-11-24 — fix/demo-multi-party-signing (Task 5: real dual-party Soroban auth)
+
+### Changes
+
+**scripts/multi-auth/rotate-recovery-key.mjs** — New file.
+
+Implements the correct multi-party Soroban authorization flow for
+`update_recovery_key`. Background: `stellar tx sign` signs the transaction
+envelope. It does NOT sign the Soroban authorization entries that non-source
+addresses need. `update_recovery_key` calls `require_auth()` on two addresses:
+
+1. `owner` — via `require_owner()` → `owner.require_auth()`. This is covered
+   automatically because the owner is the transaction source account.
+2. `current_recovery` — via `current_recovery.require_auth()`. This creates a
+   non-root `SorobanAuthorizationEntry` whose credentials must be signed with
+   `authorizeEntry()`, which signs the `HashIdPreimage` of the auth entry (not
+   the transaction envelope). This is what the previous `stellar tx sign` call
+   could not do, causing TxMalformed.
+
+The helper:
+- Reads secrets ONLY from `OWNER_SECRET` and `RECOVERY_SECRET` environment
+  variables. Never prints, logs, or echoes secrets. Never puts them in
+  command-line arguments.
+- Refuses to run if either secret is missing or malformed.
+- Loads the owner's account from RPC; builds an `invokeContractFunction`
+  transaction for `update_recovery_key` with `new_key` as the sole argument.
+- Simulates in recording mode; inspects the returned auth entries.
+- For each auth entry with address credentials matching the recovery key,
+  calls `authorizeEntry(entry, recoveryKp, latestLedger + 60, passphrase)`.
+- Rebuilds the transaction with signed auth entries; calls `assembleTransaction`
+  to apply simulation resources and fee; signs the envelope with the owner key.
+- Submits with `server.sendTransaction()`; polls with `server.getTransaction()`.
+- Falls back to a raw `fetch` JSON-RPC call if the SDK throws while parsing the
+  result (the SDK has thrown "Bad union switch: 4" on newer protocol metadata).
+- Writes exactly one line to stdout on success: `TXHASH=<64-hex-chars>`.
+  Everything else goes to stderr.
+
+**scripts/multi-auth/package.json** — New file. Private package, `"type":
+"module"`, `engines.node >=22.12.0`, pins `@stellar/stellar-sdk` to `13.3.0`
+(the latest stable protocol-22 release; the `latest` tag 17.x targets protocol
+23+ and parses testnet responses differently).
+
+**scripts/multi-auth/package-lock.json** — Committed for reproducible installs.
+
+**scripts/multi-auth/test/rotate-recovery-key.test.mjs** — New file. 14 tests
+using `node --test`. Tests:
+- Environment variable validation: rejects absent, blank, or malformed secrets.
+- Auth-entry classification: given real `xdr.SorobanAuthorizationEntry` objects
+  (not hand-written stubs), correctly identifies source-account entries (no
+  extra signing), owner address entries, and recovery address entries.
+- Mixed list handling and XDR round-trip survival.
+- Selection for `update_recovery_key`: when simulation returns one address entry
+  for the recovery key, exactly one entry is selected for signing.
+
+What the tests do NOT prove:
+- That the produced transaction is accepted by the network. Network acceptance
+  requires a live Soroban RPC node.
+- That the XDR produced is valid under the current network protocol version.
+- That the polling / fallback logic handles all real-world RPC error variants.
+
+**scripts/demo.sh** — Step 13 replaced; steps 0c and 13v added.
+
+- Step 0c: check Node >= 22.12.0 and npm are present; run `npm ci --prefix
+  scripts/multi-auth` if `node_modules` is absent.
+- Step 13: replaced the broken `--build-only` / `stellar tx sign` / `stellar tx
+  send` flow with a call to `rotate-recovery-key.mjs`. Secrets retrieved with
+  `stellar keys secret KEY_NAME` and passed ONLY via child-process environment
+  variables (`OWNER_SECRET=... RECOVERY_SECRET=... node ...`). The variables are
+  unset immediately after the helper exits, before any error output is printed.
+  The `TXHASH=` line is extracted from the helper output for the summary table.
+- Step 13v: after rotation, calls `get_recovery_key` and asserts the returned
+  address equals `NEW_RECOVERY_ADDR`. Fails hard if they differ.
+- Header updated: documents Node 22.12+ prerequisite; states that steps 0–12
+  were confirmed on testnet 2026-11-24 and steps 13–17 have NOT yet been
+  confirmed with this revised script.
+
+**scripts/demo.sh** — Header cap-arithmetic typo fixed: `10_000_000_0` →
+`100_000_000`.
+
+**.github/workflows/ci.yml** — Added three steps after shellcheck:
+- `actions/setup-node@v4` with Node 22, caching `package-lock.json`.
+- `npm ci --prefix scripts/multi-auth`.
+- `npm test --prefix scripts/multi-auth`.
+
+**README.md** — Updated demo section with Node 22.12+ prerequisite; explained
+why a Node helper is needed for step 13; noted that steps 0–12 were confirmed
+on testnet and steps 13–17 are pending. Added Node requirement to the
+Dependency notes section.
+
+**docs/deployment.md** — Added Node 22.12+ to demo prerequisites; explained why
+Node is needed (`stellar tx sign` vs. `authorizeEntry` distinction).
+
+**CONTRIBUTING.md** — Added Node 22.12+ to prerequisites; added
+`npm ci --prefix scripts/multi-auth && npm test --prefix scripts/multi-auth`
+to the PR checklist.
+
+**docs/claims-audit.md** — Updated Live Evidence table:
+- L1: documents the 2026-11-24 partial run (steps 0–12 confirmed).
+- L2: records the failed step 13 attempt (`c599c663…` TxMalformed) as evidence
+  of the root cause, not as a successful run.
+- L3–L4: explicitly "not yet run" for the revised step 13 and steps 14–17.
+- L5: confirmed in the 2026-11-24 run.
+
+---
+
+### Why (step 13 root cause)
+
+`stellar tx sign` signs the transaction envelope with the given keypair. A
+Soroban multi-party invocation also requires each non-source address to have a
+signed `SorobanAuthorizationEntry` in the operation's `auth` field. That entry
+contains a `HashIdPreimage` over the invocation tree, nonce, expiration ledger,
+and network ID — it is structurally different from the transaction envelope. The
+only way to sign it is `authorizeEntry()` from `@stellar/stellar-sdk` (or its
+equivalent). The CLI does not expose this for a second, non-source signer. That
+is why the previous approach produced TxMalformed.
+
+---
+
+### Task 1 findings (functions with more than one require_auth)
+
+After reading `contracts/safe-wallet/src/lib.rs`, exactly one function requires
+authorization from more than one address:
+
+```
+update_recovery_key(env: Env, new_key: Address) -> Result<(), WalletError>
+```
+
+Arguments: `new_key` (the new recovery key Address). No other arguments.
+
+Authorization required:
+1. Owner address — `Self::require_owner(&env)?` calls `owner.require_auth()`.
+   This is root auth (covered by the tx source account).
+2. Current recovery key address — read from `DataKey::RecoveryKey` storage, then
+   `current_recovery.require_auth()`. This is non-root auth (needs a signed
+   SorobanAuthorizationEntry with `authorizeEntry()`).
+
+No other function calls require_auth on more than one address:
+- `initialize`: only `owner.require_auth()` (after validation checks).
+- `add_whitelist`, `remove_whitelist`, `transfer`: only `require_owner()`.
+- `freeze`, `unfreeze`: only `caller.require_auth()` (single address).
+- All getters and `is_frozen`: no auth.
+
+---
+
+### Tests/verification
+
+```
+cargo fmt --all -- --check    → no diff (clean)
+cargo clippy --workspace --all-targets -- -D warnings  → Finished, 0 warnings
+cargo test --workspace        → 49 passed, 0 failed
+bash scripts/check_claims.sh  → all rows passed
+shellcheck scripts/*.sh        → clean (0 warnings)
+bash -n scripts/demo.sh        → syntax OK
+npm test --prefix scripts/multi-auth
+                              → 14 passed, 0 failed
+```
+
+Testnet run of steps 13–17: **not performed** (no network access in this
+environment). The helper will be run by the submitter.
+
+---
+
+### Limits
+
+- The `rotate-recovery-key.mjs` helper has not been run against a live testnet
+  node. The logic is derived from the official SDK documentation and the
+  `authorizeEntry` source code. Only the submitter can verify on-chain acceptance.
+- The raw-fallback polling path (for "Bad union switch: 4" SDK errors) is tested
+  with a mock in the unit tests only; real-world error variants may differ.
+- Steps 14–17 in `demo.sh` have been reviewed against the contract source
+  (error codes 1 for Unauthorized, 4 for WalletFrozen are correct) but have not
+  been run on testnet in this session.
+
