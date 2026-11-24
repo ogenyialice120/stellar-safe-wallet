@@ -64,3 +64,38 @@ stellar contract invoke \
 ```
 
 `daily_cap` is in stroops (1 XLM = 10 000 000 stroops), so `1000000000` = 100 XLM.
+
+The `--token` argument must be the **contract address** of the Stellar Asset
+Contract (SAC) for the token you want the wallet to manage — not the asset
+string "native". To find the native XLM contract address on testnet:
+
+```bash
+stellar contract id asset --asset native --network testnet
+```
+
+Pass the resulting contract ID (a `C…` address) as `--token`.
+
+## End-to-end demo
+
+`scripts/demo.sh` deploys a fresh wallet, funds it, and runs the full policy
+lifecycle. Each step is asserted: unexpected successes and unexpected errors
+both fail the script immediately. The script has **not yet been run against a
+live testnet** in this repository. When you run it, record the output in
+`docs/testnet-run.md`.
+
+```bash
+./scripts/demo.sh
+```
+
+Prerequisites: Stellar CLI v22+ and Rust 1.88.0 (from `rust-toolchain.toml`).
+
+## Stellar CLI installation
+
+The recommended way to install Stellar CLI:
+
+```bash
+curl -fsSL https://github.com/stellar/stellar-cli/raw/main/install.sh | sh
+```
+
+This installs the latest release. The demo and deploy scripts have been written
+against v22+.

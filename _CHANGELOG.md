@@ -479,3 +479,177 @@ bash scripts/check_claims.sh  → all rows passed
 ```
 
 No contract logic, test behavior, or error codes were changed in this part.
+
+---
+
+## 2026-11-24 — fix/demo-script-and-dependency-patch (Task 4: honest demo, dependency evidence)
+
+### Changes
+
+**scripts/demo.sh** — Complete rewrite.
+
+Previous problems:
+- Steps 6, 8, 10 used `if ... | grep -q` patterns that printed a friendly
+  message regardless of whether the command succeeded or failed. A transfer
+  that SUCCEEDED at step 6 would print "Correctly rejected with
+  DailyCapExceeded". The script could never detect a broken contract.
+- Step 5 (fund contract) wrapped its call in `2>/dev/null || info "(Skipping...)"`,
+  silently ignoring failures and leaving subsequent transfers to fail for an
+  unrelated reason.
+- Step 9 comment said "mock_all_auths covers the recovery key co-sign" — that
+  only exists in unit tests; on a real network it has no effect.
+- `--token "native"` passed the string "native" where the contract expects a
+  Soroban contract address (a SAC address); unverified whether the CLI resolved it.
+- The transfer amounts in steps 5/6 were arithmetically inconsistent.
+
+New implementation:
+- `expect_ok <label> <description> <cmd...>`: runs the command; if it fails,
+  prints full output and exits 1. Used for every call that must succeed.
+- `expect_error <label> <error_name> <error_code> <cmd...>`: runs the command;
+  exits 1 if the command SUCCEEDS, or if it fails without matching the named
+  error (by name string or numeric code). Used for steps 9, 12, 14.
+- Resolves the native token address with `stellar contract id asset --asset native
+  --network "$NETWORK"` and passes the resulting `C…` contract ID as `--token`.
+- Funds the wallet via the native token SAC's `transfer` function, then reads
+  the balance back and asserts it is at least 550 000 000 stroops (55 XLM)
+  before proceeding.
+- Removes every `2>/dev/null`, `|| true` and `&& ok || err` that could hide
+  failures. The only "already exists" case (network add) is detected with an
+  explicit `stellar network ls | grep` check.
+- Cap arithmetic is documented in comments:
+  10 XLM spent in step 8; cap is 50 XLM; step 9 attempts 45 XLM + 1 stroop,
+  total would be 550 000 001 > 500 000 000. Step 17 uses 5 XLM (40 XLM
+  remaining).
+- After step 8, calls `get_spent_today` and asserts the value is 100 000 000
+  (10 XLM). After steps 10 and 15, calls `is_frozen` and asserts true/false.
+- Key rotation (step 13) uses a real multi-party signing flow:
+  `stellar contract invoke --build-only` builds the XDR with the owner as
+  source (covering the owner's root auth); `stellar tx sign --sign-with-key
+  RECOVERY_KEY --auto-sign` appends the recovery key's non-root auth entry
+  signature; `stellar tx send` submits the fully-signed transaction. No mock.
+- Prints a summary table (step, expected, result, tx hash) at the end.
+- Header updated: "not yet run; run it yourself and record in docs/testnet-run.md".
+- Prerequisites documented: exact install command for Stellar CLI, Rust toolchain
+  note, internet/testnet requirement, keys-are-throwaway warning.
+
+**scripts/deploy.sh** — Honesty pass.
+- Removed `2>/dev/null` from `stellar network add`; replaced with an explicit
+  `stellar network ls | grep` check for the "already exists" case. A real
+  failure now stops the script.
+- Replaced `stellar keys fund ... || true` with an explicit warning message
+  that distinguishes between "already funded" (benign) and "real failure"
+  (needs attention). The script does not stop on a failed fund (friendbot
+  returns non-zero for already-funded accounts), but it warns clearly.
+- Added an empty-contract-ID guard after deploy.
+- Added prerequisite documentation to match demo.sh.
+
+**scripts/check_claims.sh** — Fixed SC2034 shellcheck warnings: renamed
+unused `read` fields (`claim`, `source`, `fn_name`) to `_claim`, `_source`,
+`_fn_name`.
+
+**.github/workflows/ci.yml** — Added two new steps after the claims audit:
+- Install shellcheck from GitHub releases.
+- Run `shellcheck scripts/*.sh`.
+
+**Cargo.toml** (workspace) — Upgraded `soroban-sdk` from `"=22.0.0"` to
+`"=22.0.11"`. Updated the `[patch.crates-io]` comment with evidence.
+
+**contracts/safe-wallet/Cargo.toml** — Updated dev-dependency from
+`"=22.0.0"` to `"=22.0.11"`.
+
+**Cargo.lock** — Regenerated for soroban-sdk 22.0.11.
+
+**README.md** — Updated demo section with accurate 17-step description,
+honest "not yet run" wording, and new "Dependency notes" section.
+
+**docs/deployment.md** — Added `stellar contract id asset` command to explain
+the `--token` argument; added demo script section; added Stellar CLI install
+command.
+
+**docs/claims-audit.md** — Added "Live Evidence (not test-backed)" table with
+5 rows (L1–L5) for claims that require a real testnet run to verify.
+
+**CONTRIBUTING.md** — Added `shellcheck scripts/*.sh` to the PR checklist.
+
+---
+
+### Why (demo.sh rewrite)
+
+Every `if ... | grep -q ...` pattern in the old script treated both success and
+failure as acceptable outcomes, printing a friendly message either way. The only
+way to detect a bug in the contract was to notice that the wrong message printed.
+The new helpers fail the script on the wrong outcome, so a CI or manual run that
+completes without error actually proves the assertions.
+
+### Why (deploy.sh)
+
+`|| true` on a funding call hides network connectivity problems. `2>/dev/null`
+on `network add` hides real CLI errors. Both patterns were removed.
+
+### Why (dependency upgrade to 22.0.11)
+
+The earlier changelog claimed `soroban-sdk =22.0.11` could not compile.
+Investigated in a scratch copy (no changes to the real workspace until proven):
+
+**Test matrix:**
+
+| soroban-sdk | Patch | `cargo build` | `cargo test` | `cargo clippy` | WASM build | WASM size |
+|---|---|---|---|---|---|---|
+| =22.0.0 | yes | ✓ | 49/49 | clean | ✓ | 11730 bytes |
+| =22.0.11 | no | ✓ (native) | ✗ — `ChaCha20Rng: TryRng not satisfied` | ✗ same error | ✓ (WASM doesn't link ed25519) | 11730 bytes |
+| =22.0.11 | yes | ✓ | 49/49 | clean | ✓ | 11730 bytes |
+
+**Root cause confirmed:** `soroban-env-host 22.1.3` pulls both
+`ed25519-dalek 3.0.0` (uses `rand_core 0.9` via `curve25519-dalek 5`) and
+`rand_chacha 0.3` (uses `rand_core 0.6`). These two `rand_core` versions exist
+simultaneously in the dependency tree; `ed25519_dalek::SigningKey::generate`
+requires `CryptoRng` from `rand_core 0.9`, but `ChaCha20Rng` only implements
+it from `rand_core 0.6`. The patch replaces `ed25519-dalek` with the 2.2.0
+tag, which uses `rand_core 0.6` throughout, eliminating the conflict.
+
+The claim that the **patch** is the cause of the compilation failure was not
+reproduced: with or without the patch, `cargo build` succeeds for native target.
+The failure is specific to the testutils/clippy target. The patch resolves it.
+
+**WASM output:** both sdk versions with the patch produce identical 11730-byte
+WASM files with identical exported functions (15 contract functions, 1 memory,
+2 globals). The patch has zero effect on the deployable artifact.
+
+**Decision:** Adopt `=22.0.11` with the patch. It is the more current version,
+passes all checks, and the WASM output is identical.
+
+---
+
+### Tests/verification
+
+```
+cargo fmt --all -- --check    → no diff (clean)
+cargo clippy --workspace --all-targets -- -D warnings  → Finished, 0 warnings
+cargo test --workspace        → 49 passed, 0 failed
+bash scripts/check_claims.sh  → all rows passed
+bash -n scripts/demo.sh       → syntax OK
+bash -n scripts/deploy.sh     → syntax OK
+shellcheck scripts/*.sh        → clean (0 warnings)
+cargo build --release --target wasm32v1-none \
+  --manifest-path contracts/safe-wallet/Cargo.toml
+                              → 11730 bytes (identical to 22.0.0)
+```
+
+Testnet run: **not performed** (no network access in this environment). The
+rewritten script will be run by the submitter; output to be recorded in
+`docs/testnet-run.md`.
+
+---
+
+### Limits
+
+- The demo script cannot be verified without network access. Syntax is correct
+  (`bash -n`) and shellcheck is clean, but the multi-party signing flow (step 13)
+  has not been executed end-to-end.
+- `extract_txhash` in demo.sh uses a simple regex for 64-char hex hashes. If
+  the CLI changes its output format for transaction hashes, the summary table
+  will show "-" for those entries (steps still pass or fail correctly).
+- The "already funded" detection in deploy.sh relies on friendbot returning a
+  non-zero exit code for already-funded accounts; if friendbot changes behaviour,
+  the warning message logic may need updating.
+

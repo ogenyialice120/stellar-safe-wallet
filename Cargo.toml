@@ -8,7 +8,7 @@ members = [
 rust-version = "1.88.0"
 
 [workspace.dependencies]
-soroban-sdk = { version = "=22.0.0" }
+soroban-sdk = { version = "=22.0.11" }
 
 [profile.release]
 opt-level = "z"
@@ -24,11 +24,21 @@ lto = true
 inherits = "release"
 debug-assertions = true
 
-# soroban-env-host 22.1.3 pulls in ed25519-dalek 3.0.0, which depends on
-# rand_core 0.6 via its own re-export.  rand 0.8 (also pulled in) uses
-# rand_core 0.6 from a *different* semver-incompatible resolution, causing a
-# trait-implementation conflict at compile time in the testutils build.
-# The git tag below is the version that soroban-sdk 22.x was originally tested
-# against and that correctly unifies the rand_core dependency.
+# soroban-env-host 22.1.3 (pulled by soroban-sdk 22.0.11) depends on
+# ed25519-dalek 3.0.0, which uses rand_core 0.9 (via curve25519-dalek 5).
+# The same soroban-env-host also pulls rand_chacha 0.3, which uses rand_core
+# 0.6. These two rand_core versions cannot satisfy a single trait bound in the
+# testutils build, causing a compile error. The patch below replaces
+# ed25519-dalek 3.0.0 with the 2.2.0 tag, which uses rand_core 0.6 throughout,
+# eliminating the conflict. The WASM output is unaffected (the guest target
+# does not link ed25519-dalek at all).
+#
+# Evidence: tested with =22.0.11 WITHOUT this patch — `cargo test` and `cargo
+# clippy --all-targets` both fail with:
+#   error[E0277]: the trait bound `ChaCha20Rng: TryRng` is not satisfied
+#   note: required for `ChaCha20Rng` to implement `ed25519_dalek::rand_core::CryptoRng`
+# Tested with =22.0.11 WITH this patch — all 49 tests pass, clippy is clean,
+# WASM builds to 11730 bytes with identical exports. See _CHANGELOG.md Task 2
+# entry for the full evidence matrix.
 [patch.crates-io]
 ed25519-dalek = { git = "https://github.com/dalek-cryptography/curve25519-dalek", tag = "ed25519-2.2.0" }

@@ -102,6 +102,7 @@ Before opening a PR:
 - [ ] `cargo test --workspace` passes.
 - [ ] `cargo build --release --target wasm32v1-none --manifest-path contracts/safe-wallet/Cargo.toml` succeeds.
 - [ ] `bash scripts/check_claims.sh` passes.
+- [ ] `shellcheck scripts/*.sh` is clean (install from https://github.com/koalaman/shellcheck/releases).
 - [ ] A new dated entry has been appended to `_CHANGELOG.md` (see format below).
 - [ ] `docs/` updated if any public API, error code, or behavior changed.
 - [ ] `docs/claims-audit.md` updated if a new behavioral claim was added or an existing one changed.

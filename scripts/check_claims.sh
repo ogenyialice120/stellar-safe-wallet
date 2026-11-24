@@ -29,7 +29,7 @@ if [[ ! -f "$TEST_FILE" ]]; then
 fi
 
 # Parse table rows: lines that start with | <number> |
-while IFS='|' read -r _ num claim source fn_name test_name status _; do
+while IFS='|' read -r _ num _claim _source _fn_name test_name status _; do
   # Skip header, separator, and non-data lines.
   num=$(echo "$num" | tr -d ' ')
   [[ "$num" =~ ^[0-9]+$ ]] || continue
